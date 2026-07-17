@@ -13,6 +13,7 @@
 import { db } from "./db";
 import { readSecret } from "./vault";
 import { presignUrl } from "./storage";
+import { validateVideoForPlatform } from "../video-specs";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 
@@ -92,6 +93,19 @@ export async function publishTarget(postTargetId: string): Promise<PublishResult
         /* fall back to original */
       }
       if (asset.type === "video") {
+        // Videos that were still transcoding at scheduling time skipped spec
+        // validation — enforce it here so an over-limit video fails with the
+        // actual reason, not Meta's opaque container error.
+        if (asset.durationS && asset.width && asset.height) {
+          const problems = validateVideoForPlatform(account.platform, {
+            durationS: asset.durationS,
+            width: asset.width,
+            height: asset.height,
+            fps: 30,
+            sizeMB: 0,
+          });
+          if (problems.length) throw new PermanentError(`Video violates ${account.name} limits: ${problems[0]}`);
+        }
         // Reels flow — the 9:16 rendition, cover frame if we have one.
         return publishInstagramReel(
           account.externalId,
@@ -155,8 +169,10 @@ async function publishInstagramReel(
   });
   if (!published.id) throw new Error("Reel publish returned no media id");
 
-  // Post is LIVE — permalink read-back stays best-effort (see publishInstagram).
-  let permalink = `https://www.instagram.com/reel/${published.id}`;
+  // Post is LIVE — permalink read-back stays best-effort. The media id is
+  // NOT the URL shortcode, so the fallback must be a URL that actually
+  // resolves: the account's profile page.
+  let permalink = `https://www.instagram.com/${igUserId}`;
   try {
     const media = await fetch(
       `${GRAPH}/${published.id}?${new URLSearchParams({ fields: "permalink", access_token: token })}`,
@@ -220,9 +236,14 @@ async function graphPost<T>(path: string, params: Record<string, string>): Promi
   };
   if (!res.ok) {
     const msg = body.error?.message ?? `HTTP ${res.status}`;
-    // IG processes containers asynchronously: "media not ready" (code 9007)
-    // is transient even though it arrives as a 4xx — retry it with backoff.
-    const transient = body.error?.code === 9007 || /not ready/i.test(msg);
+    // Transient despite arriving as 4xx: "media not ready" (9007) during
+    // async container processing, and Meta's application rate limits
+    // (4, 17, 32, 613) — exactly what a burst of scheduled posts can hit.
+    // Both must retry with backoff, not fail the post.
+    const transient =
+      body.error?.code === 9007 ||
+      [4, 17, 32, 613].includes(body.error?.code ?? -1) ||
+      /not ready/i.test(msg);
     if (res.status >= 400 && res.status < 500 && !transient) {
       throw new PermanentError(`Instagram rejected the post: ${msg}`);
     }
@@ -245,8 +266,12 @@ async function publishFacebookPage(pageId: string, pageToken: string, message: s
   };
   if (!res.ok || !body.id) {
     const msg = body.error?.message ?? `HTTP ${res.status}`;
-    // 4xx auth/permission errors won't heal on retry; transport/5xx might.
-    if (res.status >= 400 && res.status < 500) throw new PermanentError(`Facebook rejected the post: ${msg}`);
+    // Meta application rate limits (4, 17, 32, 613) arrive as 4xx but are
+    // transient — retry with backoff. Other 4xx (auth/permission) won't heal.
+    const rateLimited = [4, 17, 32, 613].includes(body.error?.code ?? -1);
+    if (res.status >= 400 && res.status < 500 && !rateLimited) {
+      throw new PermanentError(`Facebook rejected the post: ${msg}`);
+    }
     throw new Error(`Facebook publish failed: ${msg}`);
   }
   return { permalink: `https://www.facebook.com/${body.id}` };

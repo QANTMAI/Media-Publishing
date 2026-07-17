@@ -51,6 +51,7 @@ export interface PostView {
   permalink: string | null;
   error: string | null;
   autopilot: boolean;
+  demo: boolean; // targets a seeded demo account, not a real connection
   assetIds: string[];
   account: {
     id: string;

@@ -171,8 +171,10 @@ export default function ComposePage() {
               </div>
               <div style={{ fontSize: 12, color: "var(--color-neutral-600)" }}>
                 {attached.type === "image"
-                  ? "Variants generated: 1:1 · 4:5 · 16:9 · thumbnail"
-                  : "Stored — transcode variants land with video tooling"}
+                  ? "Variants generated: 1:1 · 4:5 · 16:9 · thumbnail. Instagram publishes the 4:5 crop."
+                  : attached.status === "processing"
+                    ? "Transcoding renditions (9:16 · 1:1 · 16:9 · X-fit) + cover frame…"
+                    : "Renditions ready: 9:16 · 1:1 · 16:9 · X-fit + cover frame"}
               </div>
             </div>
             <button
@@ -264,6 +266,11 @@ export default function ComposePage() {
           </span>
         </div>
         <div style={{ border: "2px solid var(--color-divider)", marginBottom: 20 }}>
+          {accountGroups.length === 0 && (
+            <div style={{ padding: "14px 16px", fontSize: 13, color: "var(--color-neutral-600)" }}>
+              No connectable accounts — connect one on the Accounts page first.
+            </div>
+          )}
           {accountGroups.map((g) => (
             <div
               key={g.rules.id}
@@ -333,14 +340,14 @@ export default function ComposePage() {
                 caption:
                   "Behind every drop is a long studio day ☕ — here's a peek at how this week's capsule came together. Which piece is your favourite?",
               });
-              s.notify("AI drafted a caption");
+              s.notify("Example caption inserted");
             }}
             style={{ border: "2px solid var(--color-accent-300)" }}
           >
-            <Sparkles size={14} /> AI: draft a caption
+            <Sparkles size={14} /> Insert example caption
           </button>
           <span style={{ fontSize: 12, color: "var(--color-neutral-600)" }}>
-            Uses your key · tailors tone per network
+            AI captions land with the AI studio (bring-your-own-key)
           </span>
         </div>
 
@@ -404,8 +411,8 @@ export default function ComposePage() {
           </div>
           <div style={{ padding: "14px 16px" }}>
             <div style={{ fontSize: 13, color: "var(--color-neutral-700)", marginBottom: 10 }}>
-              Overriding <strong>{rules.name}</strong> — leave blank to use the base caption. These are {rules.name}
-              &apos;s publishing rules:
+              <strong>{rules.name}</strong>&apos;s publishing rules — your base caption is validated against them
+              live. (Per-platform caption overrides ship with a later phase.)
             </div>
             <div
               style={{

@@ -35,7 +35,7 @@ screen renders populated before any real connection exists.
 
 ```bash
 npm run dev                 # integration tests need the server running
-npm test                    # unit + integration (23 tests)
+npm test                    # unit + integration (full suite)
 npm run test:unit           # unit only (timezone, vault, backoff, rules)
 ```
 
@@ -80,3 +80,41 @@ lenses live in `src/lib/platforms.ts`.
 Developer-app submissions (Meta, X, LinkedIn, YouTube, TikTok, Pinterest,
 Google Business) gate the integration timeline, not the code — start them
 early. Until then `OAUTH_MOCK=1` keeps every flow exercisable.
+
+## Recovery & operational safety
+
+**First-run window (TOFU):** until setup completes, `/setup` is open to
+whoever reaches the port — run first-run setup **before** exposing the portal
+to any network.
+
+**Lost password or authenticator:** there is no self-service reset (single
+operator, no email infrastructure). Recovery is a documented DB operation on
+the host:
+
+```bash
+# Reset 2FA enrollment (forces /setup to re-run TOTP for a NEW secret):
+npx prisma db execute --stdin <<< "UPDATE User SET totpEnabled = 0;"
+# Full reset (new operator account; accounts/posts survive):
+npx prisma db execute --stdin <<< "DELETE FROM User;"
+```
+
+After either, restart the server and complete /setup again. Sessions can be
+force-revoked at any time by bumping the epoch:
+`npx prisma db execute --stdin <<< "UPDATE Setting SET value = CAST((CAST(value AS INTEGER)+1) AS TEXT) WHERE key='sessionEpoch';"`
+
+**Backups:** SQLite dev = copy `prisma/dev.db` (+ the `storage/` directory)
+while the server is stopped. Postgres prod = `pg_dump` on a schedule + object
+storage replication. The vault's encrypted tokens are only readable with
+`VAULT_MASTER_KEY` — back the key up separately and securely, or a restored
+database has unreadable credentials.
+
+**Disk sizing:** uploads stream to the `storage/` volume (≤512 MB per video,
+25 MB per image; presign is rate-limited to 60/h and byte caps are signed
+into upload URLs). Abandoned uploads are swept hourly after a 24 h grace.
+Keep the storage volume separate from the database volume in production so
+a full media disk cannot take the DB down; alert at 80 % usage.
+
+**Shutdown behavior:** in-flight transcodes/publishes at crash time are
+recovered by stale-claim reclaim (publish jobs ~10 min, transcodes ~45 min).
+A crashed transcode may leave a `qantm-transcode-*` directory in the OS temp
+dir — harmless, OS-cleaned.

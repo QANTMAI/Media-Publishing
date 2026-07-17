@@ -33,6 +33,18 @@ test("signed GET verifies; wrong method / tampered sig / expired all fail", () =
   assert.ok(!verifySignature("GET", key, String(Math.floor(Date.now() / 1000) - 10), sig), "expiry is signed");
 });
 
+test("PUT byte cap is bound into the signature — tampering breaks it", () => {
+  const key = newStorageKey("jpg");
+  const url = presignUrl("PUT", key, 60, 25 * 1024 * 1024);
+  const u = new URL("http://x" + url);
+  const exp = u.searchParams.get("exp");
+  const sig = u.searchParams.get("sig");
+  assert.equal(u.searchParams.get("max"), String(25 * 1024 * 1024), "cap travels in the URL");
+  assert.ok(verifySignature("PUT", key, exp, sig, 25 * 1024 * 1024), "verifies with the signed cap");
+  assert.ok(!verifySignature("PUT", key, exp, sig, 512 * 1024 * 1024), "inflated cap fails verification");
+  assert.ok(!verifySignature("PUT", key, exp, sig, 0), "stripped cap fails verification");
+});
+
 test("expired URLs are rejected", () => {
   const key = newStorageKey("png");
   const url = presignUrl("GET", key, -10); // already expired

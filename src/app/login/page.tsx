@@ -110,9 +110,9 @@ export default function LoginPage() {
                 />
               </div>
               <div style={{ textAlign: "right", marginBottom: 18 }}>
-                <a href="#" style={{ fontSize: 12 }}>
-                  Forgot password?
-                </a>
+                <span style={{ fontSize: 12, color: "var(--color-neutral-600)" }}>
+                  Lost access? See docs/DEVELOPMENT.md · Recovery
+                </span>
               </div>
               {error && (
                 <p style={{ color: "var(--color-accent-2-700)", fontSize: 13, fontWeight: 600, margin: "0 0 12px" }}>
@@ -122,36 +122,18 @@ export default function LoginPage() {
               <button className="btn btn-primary btn-block" type="submit" disabled={busy}>
                 {busy ? "Checking…" : "Continue"}
               </button>
-              <div
+              <p
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                  margin: "20px 0",
-                  color: "var(--color-neutral-500)",
                   fontSize: 12,
+                  color: "var(--color-neutral-600)",
+                  marginTop: 20,
+                  borderTop: "2px solid var(--color-divider)",
+                  paddingTop: 12,
                 }}
               >
-                <span style={{ flex: 1, height: 2, background: "var(--color-divider)" }} />
-                OR
-                <span style={{ flex: 1, height: 2, background: "var(--color-divider)" }} />
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-block"
-                  onClick={() => notify("SSO is configured in a later phase — use email + password")}
-                >
-                  Continue with Google
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-block"
-                  onClick={() => notify("SSO is configured in a later phase — use email + password")}
-                >
-                  Continue with Apple
-                </button>
-              </div>
+                Sign-in is email + password + authenticator code. SSO and passkeys are on the
+                roadmap, not available yet.
+              </p>
             </form>
           ) : (
             <form
@@ -204,13 +186,6 @@ export default function LoginPage() {
                 >
                   Back
                 </button>
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={() => notify("TOTP codes rotate automatically every 30 seconds")}
-                >
-                  Resend code
-                </button>
               </div>
               <p
                 style={{
@@ -221,7 +196,7 @@ export default function LoginPage() {
                   paddingTop: 12,
                 }}
               >
-                Also supports hardware passkeys and biometric sign-in.
+                Codes rotate every 30 seconds in your authenticator app — no resend needed.
               </p>
             </form>
           )}

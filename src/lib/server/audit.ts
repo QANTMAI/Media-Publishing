@@ -25,6 +25,9 @@ export async function audit(
 export function requestIp(req: Request): string | null {
   // X-Forwarded-For is client-controlled unless a trusted proxy sets it —
   // only honor it when the deployment says so, or audit IPs are spoofable.
+  // Take the LAST entry: that's the one appended by our own proxy; earlier
+  // entries are whatever the client sent.
   if (process.env.TRUST_PROXY !== "1") return null;
-  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
+  const chain = req.headers.get("x-forwarded-for")?.split(",") ?? [];
+  return chain.at(-1)?.trim() || null;
 }

@@ -9,7 +9,8 @@ process.env.STORAGE_SIGNING_KEY = process.env.STORAGE_SIGNING_KEY ?? Buffer.allo
 process.env.DATABASE_URL = process.env.DATABASE_URL ?? "file:./dev.db";
 
 const { buildTranscodeArgs, buildCoverArgs, RENDITIONS } = await import("../src/lib/server/video");
-const { validateVideoForPlatform, VIDEO_SPECS } = await import("../src/lib/server/video-specs");
+const { validateVideoForPlatform, VIDEO_SPECS } = await import("../src/lib/video-specs");
+const { PLATFORM_RULES } = await import("../src/lib/platforms");
 
 test("transcode args: one invocation, all renditions, researched x264 settings", () => {
   const args = buildTranscodeArgs("/in.mp4", "/out", 30);
@@ -85,4 +86,26 @@ test("video specs: every platform documents sources; unverified values flagged",
   assert.equal(VIDEO_SPECS.facebook.verified, false);
   assert.equal(VIDEO_SPECS.linkedin.verified, false);
   assert.equal(VIDEO_SPECS.tiktok.verified, false);
+});
+
+test("SYSTEM RULE: composer video display derives from the enforced specs", () => {
+  // docs/PLATFORM-RULES.md — display and enforcement share one source, so
+  // the UI can never show a limit the API doesn't enforce.
+  for (const [id, rules] of Object.entries(PLATFORM_RULES)) {
+    const spec = VIDEO_SPECS[id];
+    assert.ok(spec, `${id} has an enforced video spec`);
+    const dur =
+      spec.maxDurationS >= 3600
+        ? `${Math.round(spec.maxDurationS / 3600)}h`
+        : spec.maxDurationS >= 60
+          ? `${Math.round(spec.maxDurationS / 60)}min`
+          : `${spec.maxDurationS}s`;
+    assert.ok(rules.vid.includes(dur), `${id} display "${rules.vid}" carries enforced duration ${dur}`);
+    if (!spec.verified) {
+      assert.ok(rules.vid.includes("unverified"), `${id} unverified spec is labeled in the UI`);
+    }
+  }
+  // The audit's concrete contradictions can never return:
+  assert.ok(PLATFORM_RULES.instagram.vid.includes("15min"), "IG shows the researched 15min, not the handoff's 90s");
+  assert.ok(PLATFORM_RULES.linkedin.vid.includes("500MB"), "LinkedIn shows 500MB, not the handoff's 5GB");
 });

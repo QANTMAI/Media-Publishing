@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { readSession } from "@/lib/server/session";
 import { newStorageKey, presignUrl } from "@/lib/server/storage";
-import { extForMime, validateUpload } from "@/lib/server/media";
+import { extForMime, validateUpload, MAX_IMAGE_BYTES, MAX_VIDEO_BYTES } from "@/lib/server/media";
 import { rateLimited } from "@/lib/server/rate-limit";
 
 /** POST /api/assets/presign — start an upload: validate the declared file,
@@ -30,8 +30,11 @@ export async function POST(req: Request) {
   if (!filename?.trim()) return NextResponse.json({ error: "filename required" }, { status: 400 });
 
   const key = newStorageKey(extForMime(mime!));
+  // The kind's byte cap is signed into the PUT URL — enforced at the storage
+  // door, not just declared here.
+  const cap = kind === "image" ? MAX_IMAGE_BYTES : MAX_VIDEO_BYTES;
   return NextResponse.json({
     key,
-    putUrl: presignUrl("PUT", key, 600), // 10 minutes to finish the upload
+    putUrl: presignUrl("PUT", key, 600, cap), // 10 minutes to finish the upload
   });
 }

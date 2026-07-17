@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/server/db";
 import { readSession } from "@/lib/server/session";
-import { setSetting } from "@/lib/server/settings";
+import { autopilotOn, setSetting } from "@/lib/server/settings";
 import { audit, requestIp } from "@/lib/server/audit";
 
 /* Autopilot (T-306 lite): ON plans a week of real scheduled posts across the
@@ -10,12 +10,14 @@ import { audit, requestIp } from "@/lib/server/audit";
  * haven't published yet. Caption generation is canned until the AI studio
  * (T-304) lands — labeled as such, not pretending to be a model. */
 
+/* Captions are prefixed "Draft ·", not "AI ·" — no model is involved until
+ * the AI studio (T-304) ships, and the UI must not claim otherwise. */
 const PLAN: Array<{ dayOffset: number; time: [number, number]; platform: string; caption: string; category: string }> = [
-  { dayOffset: 1, time: [9, 0],  platform: "instagram", caption: "AI · 5 styling tips for small spaces", category: "Educational" },
-  { dayOffset: 2, time: [19, 0], platform: "tiktok",    caption: "AI · trending audio + our spin", category: "Trend" },
-  { dayOffset: 3, time: [8, 30], platform: "linkedin",  caption: "AI · what a week of posting taught us", category: "Educational" },
-  { dayOffset: 4, time: [12, 0], platform: "x",         caption: "AI · midweek drop reminder", category: "Promo" },
-  { dayOffset: 5, time: [18, 0], platform: "instagram", caption: "AI · behind the scenes of this week", category: "Behind the scenes" },
+  { dayOffset: 1, time: [9, 0],  platform: "instagram", caption: "Draft · 5 styling tips for small spaces", category: "Educational" },
+  { dayOffset: 2, time: [19, 0], platform: "tiktok",    caption: "Draft · trending audio + our spin", category: "Trend" },
+  { dayOffset: 3, time: [8, 30], platform: "linkedin",  caption: "Draft · what a week of posting taught us", category: "Educational" },
+  { dayOffset: 4, time: [12, 0], platform: "x",         caption: "Draft · midweek drop reminder", category: "Promo" },
+  { dayOffset: 5, time: [18, 0], platform: "instagram", caption: "Draft · behind the scenes of this week", category: "Behind the scenes" },
 ];
 
 export async function POST(req: Request) {
@@ -26,6 +28,11 @@ export async function POST(req: Request) {
   if (typeof on !== "boolean") return NextResponse.json({ error: "on (boolean) required" }, { status: 400 });
 
   if (on) {
+    // Idempotent: a double-submit (two tabs, retried request) must not plan
+    // a second week of duplicate posts.
+    if (await autopilotOn()) {
+      return NextResponse.json({ autopilot: true, planned: 0 });
+    }
     const connected = await db.socialAccount.findMany({
       where: { userId, status: "connected" },
     });

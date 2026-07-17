@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { usePortal } from "@/lib/store";
 import type { AccountStatus, SocialAccount } from "@/lib/types";
 
@@ -28,13 +28,33 @@ const META_PLATFORMS = ["instagram", "facebook", "threads"];
 
 export default function AccountsPage() {
   const { accounts, setAccounts, notify } = usePortal();
+  const [loaded, setLoaded] = useState(false);
 
   const refresh = async () => {
     const res = await fetch("/api/accounts");
     if (res.ok) setAccounts((await res.json()).accounts);
+    setLoaded(true);
   };
 
   // Surface the OAuth callback result (?connected= / ?connect_error=) once.
+  // Own fetch on mount (state set in the resolved continuation) — the page
+  // must distinguish "loading" from "genuinely no accounts".
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/accounts")
+      .then(async (res) => {
+        if (cancelled) return;
+        if (res.ok) setAccounts((await res.json()).accounts);
+      })
+      .finally(() => {
+        if (!cancelled) setLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const connected = params.get("connected");
@@ -65,7 +85,8 @@ export default function AccountsPage() {
 
   const connect = (a: SocialAccount) => {
     if (META_PLATFORMS.includes(a.platform)) {
-      window.location.href = "/api/oauth/meta/start";
+      // Full-page navigation (OAuth redirect chain) — not a client-side route.
+      window.location.assign("/api/oauth/meta/start");
     } else {
       notify(`${a.name} connect ships with its platform app (Waves 2–3) — Meta first`);
     }
@@ -100,7 +121,7 @@ export default function AccountsPage() {
       <div className="stack stack-strong">
         {accounts.length === 0 && (
           <div style={{ padding: "18px", fontSize: 13, color: "var(--color-neutral-600)" }}>
-            Loading accounts…
+            {loaded ? "No accounts yet — connecting Meta creates your first rows." : "Loading accounts…"}
           </div>
         )}
         {accounts.map((a) => {

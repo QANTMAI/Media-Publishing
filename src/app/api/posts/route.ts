@@ -4,7 +4,7 @@ import { readSession } from "@/lib/server/session";
 import { zonedTimeToUtc } from "@/lib/server/timezone";
 import { audit, requestIp } from "@/lib/server/audit";
 import { PLATFORM_RULES } from "@/lib/platforms";
-import { validateVideoForPlatform } from "@/lib/server/video-specs";
+import { validateVideoForPlatform } from "@/lib/video-specs";
 
 /** GET /api/posts — every target with its post + account, shaped for the
  * calendar/dashboard. */
@@ -12,13 +12,22 @@ export async function GET() {
   const userId = await readSession();
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  // Bounded window: the calendar/dashboard render −90d…+365d; unscheduled
+  // drafts are always included. Without this the payload grows unboundedly
+  // with posting history.
+  const windowStart = new Date(Date.now() - 90 * 24 * 60 * 60_000);
+  const windowEnd = new Date(Date.now() + 365 * 24 * 60 * 60_000);
   const targets = await db.postTarget.findMany({
-    where: { post: { userId } },
+    where: {
+      post: { userId },
+      OR: [{ scheduledAt: null }, { scheduledAt: { gte: windowStart, lte: windowEnd } }],
+    },
     include: {
       post: { select: { id: true, baseCaption: true, category: true, source: true } },
-      account: { select: { id: true, platform: true, name: true, mark: true, handle: true } },
+      account: { select: { id: true, platform: true, name: true, mark: true, handle: true, label: true } },
     },
     orderBy: { scheduledAt: "asc" },
+    take: 2000,
   });
 
   return NextResponse.json({
@@ -33,7 +42,8 @@ export async function GET() {
       error: t.error,
       assetIds: t.assetIds ? t.assetIds.split(",") : [],
       autopilot: t.post.source === "autopilot",
-      account: t.account,
+      demo: t.account.label === "demo",
+      account: { id: t.account.id, platform: t.account.platform, name: t.account.name, mark: t.account.mark, handle: t.account.handle },
     })),
   });
 }
@@ -86,10 +96,18 @@ export async function POST(req: Request) {
   }
 
   // Server-side rules engine check — the composer validates live, but the API
-  // is the enforcement point.
+  // is the enforcement point. Platforms without a rules entry have no
+  // publisher integration yet: scheduling to them would only mint a job
+  // guaranteed to fail, so refuse up front.
   for (const a of accounts) {
     const rules = PLATFORM_RULES[a.platform];
-    if (rules && baseCaption.length > rules.limit) {
+    if (!rules) {
+      return NextResponse.json(
+        { error: `${a.name} publishing is not integrated yet — remove ${a.handle} from the selection` },
+        { status: 422 },
+      );
+    }
+    if (baseCaption.length > rules.limit) {
       return NextResponse.json(
         { error: `Caption is ${baseCaption.length - rules.limit} over the ${rules.name} limit (${rules.limit})` },
         { status: 422 },

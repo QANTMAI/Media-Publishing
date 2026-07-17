@@ -35,25 +35,36 @@ function keyIsSafe(key: string): boolean {
   return /^[0-9]{4}\/[0-9]{2}\/[a-f0-9]{32}(\.[a-z0-9]{1,8})?(\.[a-z0-9_]{1,16}\.[a-z0-9]{1,8})?$/.test(key);
 }
 
-function sign(method: string, key: string, expires: number): string {
-  return createHmac("sha256", signingKey()).update(`${method}\n${key}\n${expires}`).digest("hex");
+function sign(method: string, key: string, expires: number, maxBytes: number): string {
+  return createHmac("sha256", signingKey())
+    .update(`${method}\n${key}\n${expires}\n${maxBytes}`)
+    .digest("hex");
 }
 
-/** Build a signed URL path for the storage route. TTL in seconds. */
-export function presignUrl(method: "GET" | "PUT", key: string, ttlSeconds: number): string {
+/** Build a signed URL path for the storage route. TTL in seconds. For PUT,
+ * `maxBytes` caps the upload and is bound into the signature — a client
+ * cannot use an image presign to park a video-sized blob. */
+export function presignUrl(method: "GET" | "PUT", key: string, ttlSeconds: number, maxBytes = 0): string {
   if (!keyIsSafe(key)) throw new Error("Invalid storage key");
   const expires = Math.floor(Date.now() / 1000) + ttlSeconds;
-  const sig = sign(method, key, expires);
-  return `/api/storage/${key}?exp=${expires}&sig=${sig}&m=${method}`;
+  const sig = sign(method, key, expires, maxBytes);
+  const cap = maxBytes ? `&max=${maxBytes}` : "";
+  return `/api/storage/${key}?exp=${expires}&sig=${sig}&m=${method}${cap}`;
 }
 
 /** Verify a signed request. Returns true only for an unexpired, untampered
- * signature matching this method+key. */
-export function verifySignature(method: string, key: string, exp: string | null, sig: string | null): boolean {
+ * signature matching this method+key(+byte cap). */
+export function verifySignature(
+  method: string,
+  key: string,
+  exp: string | null,
+  sig: string | null,
+  maxBytes = 0,
+): boolean {
   if (!exp || !sig || !keyIsSafe(key)) return false;
   const expires = Number(exp);
   if (!Number.isFinite(expires) || expires * 1000 < Date.now()) return false;
-  const expected = Buffer.from(sign(method, key, expires), "hex");
+  const expected = Buffer.from(sign(method, key, expires, maxBytes), "hex");
   const given = Buffer.from(/^[a-f0-9]{64}$/.test(sig) ? sig : "0".repeat(64), "hex");
   return expected.length === given.length && timingSafeEqual(expected, given);
 }

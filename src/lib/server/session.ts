@@ -4,6 +4,7 @@
 
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
+import { getSetting, setSetting } from "./settings";
 
 const SESSION_COOKIE = "qantm_session";
 const PREAUTH_COOKIE = "qantm_preauth";
@@ -27,11 +28,21 @@ async function sign(payload: Record<string, unknown>, ttlSeconds: number) {
 async function verifyToken<T>(token: string | undefined): Promise<T | null> {
   if (!token) return null;
   try {
-    const { payload } = await jwtVerify(token, secret());
+    const { payload } = await jwtVerify(token, secret(), { algorithms: ["HS256"] });
     return payload as T;
   } catch {
     return null;
   }
+}
+
+/** Sessions carry the epoch at mint time; bumping it (sign-out) revokes every
+ * outstanding session immediately — logout is real, not cosmetic. */
+async function sessionEpoch(): Promise<number> {
+  return Number((await getSetting("sessionEpoch")) ?? "0");
+}
+
+export async function bumpSessionEpoch(): Promise<void> {
+  await setSetting("sessionEpoch", String((await sessionEpoch()) + 1));
 }
 
 const cookieOpts = {
@@ -57,17 +68,22 @@ export async function readPreauth(): Promise<string | null> {
 export async function setSessionCookie(userId: string) {
   const jar = await cookies();
   jar.delete(PREAUTH_COOKIE);
-  jar.set(SESSION_COOKIE, await sign({ sub: userId, stage: "full" }, SESSION_TTL_S), {
-    ...cookieOpts,
-    maxAge: SESSION_TTL_S,
-  });
+  jar.set(
+    SESSION_COOKIE,
+    await sign({ sub: userId, stage: "full", epoch: await sessionEpoch() }, SESSION_TTL_S),
+    { ...cookieOpts, maxAge: SESSION_TTL_S },
+  );
 }
 
 /** Returns the authenticated user id, or null. */
 export async function readSession(): Promise<string | null> {
   const jar = await cookies();
-  const payload = await verifyToken<{ sub: string; stage: string }>(jar.get(SESSION_COOKIE)?.value);
-  return payload?.stage === "full" ? payload.sub : null;
+  const payload = await verifyToken<{ sub: string; stage: string; epoch?: number }>(
+    jar.get(SESSION_COOKIE)?.value,
+  );
+  if (payload?.stage !== "full") return null;
+  if ((payload.epoch ?? 0) !== (await sessionEpoch())) return null; // revoked by sign-out
+  return payload.sub;
 }
 
 export async function clearSession() {

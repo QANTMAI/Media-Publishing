@@ -2,9 +2,8 @@
  *
  * Server-side validation is the enforcement point (the composer's client
  * checks are advisory). Image variants cover the aspect ratios the platforms
- * want (1:1, 4:5, 16:9) plus a library thumbnail. Video transcoding needs
- * ffmpeg and lands with the video tooling ticket (T-302) — originals are
- * stored and published as-is until then. */
+ * want (1:1, 4:5, 16:9) plus a library thumbnail. Video transcoding lives in
+ * video.ts (ffmpeg renditions, run by the media worker). */
 
 import sharp from "sharp";
 import { newStorageKey, putObject } from "./storage";

@@ -352,13 +352,18 @@ test("media pipeline: presign → upload → variants → list → attach → in
   const blockedDelete = await api(`/api/assets/${assetId}`, { method: "DELETE" });
   assert.equal(blockedDelete.status, 409, "in-use asset cannot be deleted");
 
+  // Cancelled posts drop to DRAFT — drafts still protect their media (a
+  // relaunched draft must not lose its attachment), so delete stays refused
+  // until the post itself is gone.
   await api(`/api/targets/${target!.id}/cancel`, { method: "POST" });
-  const del = await api(`/api/assets/${assetId}`, { method: "DELETE" });
-  assert.equal(del.status, 200, "deletable once no longer scheduled");
-  const goneThumb = await fetch(`${BASE}${thumbUrl}`);
-  assert.equal(goneThumb.status, 404, "variant files removed");
+  const stillBlocked = await api(`/api/assets/${assetId}`, { method: "DELETE" });
+  assert.equal(stillBlocked.status, 409, "drafts keep protecting their media");
 
   await db.post.delete({ where: { id: postId } });
+  const del = await api(`/api/assets/${assetId}`, { method: "DELETE" });
+  assert.equal(del.status, 200, "deletable once nothing references it");
+  const goneThumb = await fetch(`${BASE}${thumbUrl}`);
+  assert.equal(goneThumb.status, 404, "variant files removed");
 });
 
 test("video pipeline: upload → transcode renditions + cover → validate → Reels publish (mock)", async () => {

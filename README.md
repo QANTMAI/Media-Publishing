@@ -61,14 +61,18 @@ zustand · FullCalendar · jose · otplib · bcryptjs
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — system design: data model,
   publish queue, credential vault, auth flow.
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — environment, database,
-  testing, and platform-integration notes.
+  testing, recovery/backups, and platform-integration notes.
+- [docs/PLATFORM-RULES.md](docs/PLATFORM-RULES.md) — every platform limit,
+  its verification status, and the single-source-of-truth rule.
+- [docs/VIDEO.md](docs/VIDEO.md) — researched video specs and the encode plan.
 
 ## Status
 
 The UI (all screens), real auth, the encrypted vault, the Meta OAuth connect
 flow, the scheduling/publish pipeline, and the media pipeline (private
 storage with signed URLs, uploads, image variants, asset library, composer
-attachments, Instagram container flow) are implemented and tested (28-test
-suite). Remaining platform integrations, video tooling, analytics pulls, and
-the AI studio are on the roadmap — see
+attachments, Instagram container + Reels flows), and the ffmpeg video
+transcode pipeline are implemented and tested (run `npm test` for the
+current suite). Remaining platform integrations, auto-captions, analytics
+pulls, and the AI studio are on the roadmap — see
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#whats-next).

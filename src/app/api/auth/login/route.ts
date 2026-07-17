@@ -15,14 +15,25 @@ export async function POST(req: Request) {
   };
   const ip = requestIp(req);
 
-  const rlKey = `login:${ip ?? "local"}:${(email ?? "").toLowerCase()}`;
-  if (rateLimited(rlKey, 5, 15 * 60_000)) {
+  // Without a trusted proxy the IP is unknown and the bucket is shared —
+  // a remote attacker hammering the operator's email must not lock the real
+  // operator out, so the shared bucket gets a higher ceiling. (With
+  // TRUST_PROXY=1 the per-IP key keeps the strict limit.)
+  const rlKey = `login:${ip ?? "shared"}:${(email ?? "").toLowerCase()}`;
+  if (rateLimited(rlKey, ip ? 5 : 20, 15 * 60_000)) {
     await audit("auth.login.throttled", { ip, metadata: { email: email ?? "" } });
     return NextResponse.json({ error: "Too many attempts — try again later" }, { status: 429 });
   }
 
   const user = email ? await db.user.findUnique({ where: { email: email.toLowerCase() } }) : null;
-  const ok = user && password ? await bcrypt.compare(password, user.passwordHash) : false;
+  // Constant-work comparison: unknown emails still burn a bcrypt verify, so
+  // response timing doesn't reveal whether the account exists.
+  // Real bcrypt-12 hash of a throwaway string (generated, verified ~250ms
+  // compare on this hardware) — never matches any password.
+  const DUMMY_HASH = "$2b$12$eO7phdZTml2pvLd/hYRqh.e0DEAcIntZCq4o3O9K1qazbd6VyTBRW";
+  const ok = password
+    ? await bcrypt.compare(password, user?.passwordHash ?? DUMMY_HASH).then((r) => r && !!user)
+    : false;
 
   if (!user || !ok) {
     await audit("auth.login.failed", { ip, metadata: { email: email ?? "" } });

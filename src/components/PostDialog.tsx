@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { usePortal } from "@/lib/store";
 import { postColor } from "@/lib/platforms";
 
@@ -12,13 +13,34 @@ function formatWhen(iso: string | null): string {
 export function PostDialog() {
   const { posts, dialogId, lens, closeDialog, cancelTarget } = usePortal();
   const post = dialogId != null ? posts.find((p) => p.id === dialogId) : null;
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  // Keyboard accessibility: focus moves into the dialog on open; Escape closes.
+  useEffect(() => {
+    if (!post) return;
+    closeRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeDialog();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [post, closeDialog]);
+
   if (!post) return null;
 
   const cancellable = post.status === "draft" || post.status === "scheduled" || post.status === "failed";
+  // Seeded/mock permalinks are demo artifacts, not live posts — label them.
+  const mockLink = post.permalink?.includes("mock.qantm.local") ?? false;
 
   return (
     <div className="dialog-backdrop" onClick={closeDialog}>
-      <div className="dialog" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+      <div
+        className="dialog"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="post-dialog-title"
+      >
         <div
           style={{
             display: "flex",
@@ -29,7 +51,7 @@ export function PostDialog() {
           }}
         >
           <span className="dot" style={{ width: 12, height: 12, background: postColor(post, lens) }} />
-          <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 17 }}>
+          <div id="post-dialog-title" style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 17 }}>
             {post.account.name} · {formatWhen(post.scheduledAt)}
           </div>
         </div>
@@ -39,13 +61,22 @@ export function PostDialog() {
             <span className="tag tag-outline">{post.category}</span>
             <span className="tag tag-neutral">{post.status}</span>
             <span className="tag tag-outline">{post.account.handle}</span>
+            {post.demo && <span className="tag tag-outline">demo data</span>}
           </div>
           {post.status === "published" && post.permalink && (
             <p style={{ fontSize: 13, margin: "12px 0 0" }}>
-              Live at{" "}
-              <a href={post.permalink} target="_blank" rel="noreferrer">
-                {post.permalink}
-              </a>
+              {mockLink ? (
+                <span style={{ color: "var(--color-neutral-600)" }}>
+                  Mock publish (no real platform call): <code>{post.permalink}</code>
+                </span>
+              ) : (
+                <>
+                  Live at{" "}
+                  <a href={post.permalink} target="_blank" rel="noreferrer">
+                    {post.permalink}
+                  </a>
+                </>
+              )}
             </p>
           )}
           {post.status === "failed" && post.error && (
@@ -74,7 +105,7 @@ export function PostDialog() {
               Cancel this post
             </button>
           )}
-          <button className="btn btn-secondary" onClick={closeDialog}>
+          <button ref={closeRef} className="btn btn-secondary" onClick={closeDialog}>
             Close
           </button>
         </div>

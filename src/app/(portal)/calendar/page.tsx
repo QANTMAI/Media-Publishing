@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import listPlugin from "@fullcalendar/list";
 import interactionPlugin from "@fullcalendar/interaction";
-import type { EventClickArg, EventDropArg } from "@fullcalendar/core";
+import type { DatesSetArg, EventClickArg, EventDropArg } from "@fullcalendar/core";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { usePortal } from "@/lib/store";
 import { CATEGORY_COLORS, PLATFORM_COLORS, STATUS_COLORS, postColor } from "@/lib/platforms";
 import type { CalView, Lens } from "@/lib/types";
@@ -17,8 +18,12 @@ const FC_VIEWS: Record<CalView, string> = {
   list: "listWeek",
 };
 
+const DRAGGABLE_STATES = new Set(["draft", "scheduled", "failed"]);
+
 export default function CalendarPage() {
   const { posts, lens, calView, setCalView, setLens, openDialog, rescheduleTarget } = usePortal();
+  const calRef = useRef<FullCalendar>(null);
+  const [rangeLabel, setRangeLabel] = useState("");
 
   const events = useMemo(
     () =>
@@ -26,14 +31,18 @@ export default function CalendarPage() {
         .filter((p) => p.scheduledAt)
         .map((p) => {
           const c = postColor(p, lens);
+          const statusWord = lens === "status" ? ` · ${p.status}` : "";
           return {
             id: p.id,
-            title: `${p.account.mark} · ${p.caption}`,
+            title: `${p.account.mark}${statusWord} · ${p.caption}`,
             start: p.scheduledAt!,
             allDay: false,
             backgroundColor: c + "22",
             borderColor: c,
             textColor: "#201e1d",
+            // Published / mid-publish posts are locked server-side; don't
+            // offer a drag that can only bounce.
+            editable: DRAGGABLE_STATES.has(p.status),
           };
         }),
     [posts, lens],
@@ -56,7 +65,13 @@ export default function CalendarPage() {
     return Object.entries(map).map(([label, color]) => ({ label, color }));
   }, [lens]);
 
-  const rangeLabel = new Date().toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  const nav = (dir: "prev" | "next" | "today") => {
+    const api = calRef.current?.getApi();
+    if (!api) return;
+    if (dir === "prev") api.prev();
+    else if (dir === "next") api.next();
+    else api.today();
+  };
 
   const onEventClick = (info: EventClickArg) => openDialog(info.event.id);
   const onEventDrop = (info: EventDropArg) => {
@@ -65,9 +80,11 @@ export default function CalendarPage() {
       info.revert();
       return;
     }
-    rescheduleTarget(info.event.id, d.toISOString()).then((ok) => {
-      if (!ok) info.revert();
-    });
+    rescheduleTarget(info.event.id, d.toISOString())
+      .then((ok) => {
+        if (!ok) info.revert();
+      })
+      .catch(() => info.revert());
   };
 
   return (
@@ -83,7 +100,18 @@ export default function CalendarPage() {
           marginBottom: 16,
         }}
       >
-        <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 22 }}>{rangeLabel}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div className="seg">
+            <button onClick={() => nav("prev")} aria-label="Previous period" style={{ padding: "8px 10px" }}>
+              <ChevronLeft size={15} />
+            </button>
+            <button onClick={() => nav("today")}>Today</button>
+            <button onClick={() => nav("next")} aria-label="Next period" style={{ padding: "8px 10px" }}>
+              <ChevronRight size={15} />
+            </button>
+          </div>
+          <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 22 }}>{rangeLabel}</div>
+        </div>
         <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
           <div className="seg">
             {(["month", "week", "list"] as CalView[]).map((v) => (
@@ -127,6 +155,7 @@ export default function CalendarPage() {
       {/* Calendar */}
       <div style={{ border: "2px solid var(--color-text)", background: "var(--color-bg)", padding: 10 }}>
         <FullCalendar
+          ref={calRef}
           key={calView}
           plugins={[dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin]}
           initialView={FC_VIEWS[calView]}
@@ -139,10 +168,12 @@ export default function CalendarPage() {
           events={events}
           eventClick={onEventClick}
           eventDrop={onEventDrop}
+          datesSet={(arg: DatesSetArg) => setRangeLabel(arg.view.title)}
         />
       </div>
       <p style={{ fontSize: 12, color: "var(--color-neutral-600)", marginTop: 10 }}>
-        Runs on FullCalendar (MIT). Drag any event to reschedule · click to open · switch views and color lens above.
+        Runs on FullCalendar (MIT). Drag a draft/scheduled/failed event to reschedule · published posts are locked ·
+        click to open.
       </p>
     </div>
   );

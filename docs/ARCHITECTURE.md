@@ -89,13 +89,14 @@ implementation, not the call sites. Signatures are HMAC-SHA256 over
 method·key·expiry, verified in constant time; storage keys are generated
 server-side, so path traversal is impossible by construction.
 
-Upload flow: `presign` (validates the declared type/size, mints a 10-minute
-PUT URL) → the client streams bytes directly to storage → `complete`
-re-validates server-side, probes dimensions, and generates platform-fit
-image variants via sharp (1:1, 4:5, 16:9, thumbnail). The database stores
-only `Asset` metadata and keys — never bytes. Deleting an asset is refused
-while a scheduled post references it. Video is stored as-is; transcoding
-(ffmpeg) lands with the video tooling ticket.
+Upload flow: `presign` (validates the declared type/size, rate-limited,
+mints a 10-minute PUT URL with the kind's byte cap signed in) → the client
+streams bytes directly to storage → `complete` re-validates server-side,
+probes dimensions, and generates platform-fit image variants via sharp
+(1:1, 4:5, 16:9, thumbnail). Videos transcode asynchronously in the media
+worker (ffmpeg renditions + cover frame — see docs/VIDEO.md). The database
+stores only `Asset` metadata and keys — never bytes. Deleting an asset is
+refused while any draft or scheduled post references it.
 
 ## Platform integrations
 
@@ -115,9 +116,10 @@ mock permalinks. Real Instagram publishing additionally needs
 
 1. Remaining platform integrations in waves: X, LinkedIn, YouTube →
    TikTok, Pinterest, Google Business → Bluesky.
-2. Video tooling: ffmpeg transcodes (9:16 / 1:1 / 16:9), auto-captions,
-   cover picker — also unblocks Instagram Reels publishing.
-3. Analytics pulls from platform APIs; plain-English insights.
+2. Rest of video tooling: auto-captions (speech-to-text) and in-browser trim
+   (transcodes + Reels publishing are done — docs/VIDEO.md).
+3. Analytics pulls from platform APIs — until then the Analytics/Dashboard
+   screens show only real counts derived from the portal's own records.
 4. AI content studio (bring-your-own-key) and the optimizer/growth engine.
-5. Production hardening: Postgres, KMS, S3 storage adapter, backups,
-   observability, pen test.
+5. Production hardening: Postgres, KMS, S3 storage adapter, automated
+   backups, observability, pen test.

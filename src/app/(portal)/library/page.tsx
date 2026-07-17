@@ -14,13 +14,24 @@ export default function LibraryPage() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
-    setAssets(await listAssets());
+    const list = await listAssets();
+    setAssets(list);
     setLoaded(true);
   }, []);
 
+  // Canonical fetch-on-mount with a cancellation guard (react.dev pattern) —
+  // state updates happen in the resolved continuation, not the effect body.
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    let cancelled = false;
+    listAssets().then((list) => {
+      if (cancelled) return;
+      setAssets(list);
+      setLoaded(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Poll while any video is still transcoding so the tile flips to ready
   // without a manual reload.

@@ -11,9 +11,11 @@ export async function GET() {
   const userId = await readSession();
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  // Newest 500 — bounds payload and signed-URL minting as the library grows.
   const assets = await db.asset.findMany({
     where: { userId },
     orderBy: { createdAt: "desc" },
+    take: 500,
   });
 
   return NextResponse.json({

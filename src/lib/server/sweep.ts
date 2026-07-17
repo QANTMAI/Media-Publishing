@@ -23,10 +23,11 @@ export async function sweepOrphanUploads(): Promise<{ deleted: number }> {
     return { deleted: 0 }; // storage dir doesn't exist yet
   }
 
-  const assets = await db.asset.findMany({ select: { storageKey: true, variants: true } });
+  const assets = await db.asset.findMany({ select: { storageKey: true, variants: true, coverKey: true } });
   const known = new Set<string>();
   for (const a of assets) {
     known.add(a.storageKey);
+    if (a.coverKey) known.add(a.coverKey); // video cover frames live on the row, not in variants
     for (const k of variantKeys(a.variants)) known.add(k);
   }
 
