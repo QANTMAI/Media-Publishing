@@ -1,8 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
-import { Check, ChevronDown, Heart, MessageCircle, Plus, Share, Sparkles, X as XIcon } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Check, ChevronDown, ExternalLink, Heart, MessageCircle, Plus, RefreshCw, Share, Sparkles, TrendingUp, X as XIcon } from "lucide-react";
 import { usePortal, selectableAccounts } from "@/lib/store";
 import { uploadAsset, type UploadedAsset } from "@/lib/upload";
 import {
@@ -15,6 +15,14 @@ import {
 
 const TIMEZONES = ["ET (Eastern)", "CT (Central)", "MT (Mountain)", "PT (Pacific)", "UTC", "GMT (London)"];
 
+function feedTimeAgo(iso: string | null): string {
+  if (!iso) return "";
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
 export default function ComposePage() {
   const router = useRouter();
   const s = usePortal();
@@ -24,6 +32,13 @@ export default function ComposePage() {
   const [acctMenu, setAcctMenu] = useState(false);
   const [saving, setSaving] = useState(false);
   const [newCat, setNewCat] = useState<string | null>(null); // inline ＋New name, null = closed
+  const [feedBusy, setFeedBusy] = useState(false);
+
+  // Pull the operator's trending items for the assist rail.
+  useEffect(() => {
+    s.refreshFeedItems();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const attachFile = async (file: File | undefined) => {
     if (!file) return;
@@ -734,6 +749,81 @@ export default function ComposePage() {
               <Share size={13} /> Share
             </span>
           </div>
+        </div>
+
+        {/* ── Trending & breaking (assist rail) ── */}
+        <div style={{ marginTop: 20, border: "2px solid var(--color-divider)", background: "var(--color-bg)" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 8,
+              padding: "12px 14px",
+              borderBottom: "2px solid var(--color-divider)",
+            }}
+          >
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 14 }}>
+              <TrendingUp size={15} /> Trending &amp; breaking
+            </span>
+            <button
+              className="btn btn-ghost"
+              onClick={async () => {
+                setFeedBusy(true);
+                const n = await s.pollFeeds();
+                setFeedBusy(false);
+                s.notify(n === 0 ? "Add RSS feeds in Settings" : `Refreshed ${n} feed${n > 1 ? "s" : ""}`);
+              }}
+              disabled={feedBusy}
+              title="Refresh feeds now"
+              aria-label="Refresh feeds now"
+              style={{ flex: "none", padding: "5px 8px" }}
+            >
+              <RefreshCw size={14} style={feedBusy ? { opacity: 0.5 } : undefined} />
+            </button>
+          </div>
+          <div style={{ padding: "6px 14px", borderBottom: "1px solid var(--color-divider)", background: "var(--color-neutral-100)", fontSize: 11, color: "var(--color-neutral-600)" }}>
+            From your RSS feeds · auto-refreshes every 3h
+          </div>
+          {s.feedItems.length === 0 ? (
+            <div style={{ padding: "16px 14px", fontSize: 12.5, color: "var(--color-neutral-600)" }}>
+              No trending items yet. Add RSS/Atom feeds under{" "}
+              <button
+                onClick={() => router.push("/settings")}
+                style={{ border: 0, background: "none", padding: 0, color: "var(--color-accent-700)", cursor: "pointer", font: "inherit", textDecoration: "underline" }}
+              >
+                Settings → Trend sources
+              </button>
+              .
+            </div>
+          ) : (
+            <div style={{ maxHeight: 420, overflowY: "auto" }}>
+              {s.feedItems.map((it) => (
+                <div key={it.id} style={{ padding: "10px 14px", borderBottom: "1px solid var(--color-divider)" }}>
+                  <a
+                    href={it.link}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ display: "inline-flex", alignItems: "baseline", gap: 4, fontWeight: 600, fontSize: 13, color: "var(--color-text)", textDecoration: "none" }}
+                  >
+                    {it.title}
+                    <ExternalLink size={11} style={{ flex: "none", opacity: 0.6, alignSelf: "center" }} />
+                  </a>
+                  <div style={{ fontSize: 11, color: "var(--color-neutral-600)", margin: "3px 0 8px" }}>
+                    {it.sourceTitle}
+                    {it.publishedAt ? ` · ${feedTimeAgo(it.publishedAt)}` : ""}
+                  </div>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => s.draftFromFeed(it)}
+                    style={{ fontSize: 12, padding: "4px 10px" }}
+                  >
+                    Draft a post
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

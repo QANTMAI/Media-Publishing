@@ -861,3 +861,63 @@ test("notifications: real publish failure notifies; prefs gate; review-ready; em
   await db.post.deleteMany({ where: { id: { in: [first.postId, second.postId] } } });
   await db.notification.deleteMany({ where: { userId } });
 });
+
+test("feeds: real RSS/Atom parsing, SSRF guard, and enabled-source listing", async () => {
+  const { parseFeed } = await import("../src/lib/server/feeds");
+
+  // Real RSS 2.0 parsing (entities decoded, HTML stripped, date parsed).
+  const rss = `<?xml version="1.0"?><rss version="2.0"><channel><title>My Blog</title>
+    <item><title>First &amp; best</title><link>https://ex.com/1</link><guid>g1</guid>
+    <pubDate>Wed, 01 Jan 2025 10:00:00 GMT</pubDate><description>&lt;p&gt;Hello world&lt;/p&gt;</description></item>
+    </channel></rss>`;
+  const p = parseFeed(rss);
+  assert.equal(p.title, "My Blog");
+  assert.equal(p.items.length, 1);
+  assert.equal(p.items[0].title, "First & best");
+  assert.equal(p.items[0].link, "https://ex.com/1");
+  assert.equal(p.items[0].guid, "g1");
+  assert.equal(p.items[0].summary, "Hello world");
+  assert.ok(p.items[0].publishedAt instanceof Date);
+
+  // Real Atom parsing (link@href with rel=alternate, id as guid).
+  const atom = `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><title>Atom Site</title>
+    <entry><title>Entry one</title><link href="https://ex.com/a" rel="alternate"/><id>id-a</id>
+    <updated>2025-02-02T08:00:00Z</updated><summary>Sum</summary></entry></feed>`;
+  const a = parseFeed(atom);
+  assert.equal(a.title, "Atom Site");
+  assert.equal(a.items[0].link, "https://ex.com/a");
+  assert.equal(a.items[0].guid, "id-a");
+
+  // Non-feed XML is rejected.
+  assert.throws(() => parseFeed("<html><body>nope</body></html>"));
+
+  // SSRF/validation guards reject unsafe URLs before any fetch.
+  assert.equal((await api("/api/feeds", { method: "POST", body: JSON.stringify({ url: "ftp://ex.com/feed" }) })).status, 422);
+  assert.equal((await api("/api/feeds", { method: "POST", body: JSON.stringify({ url: "http://127.0.0.1/feed" }) })).status, 422);
+  assert.equal((await api("/api/feeds", { method: "POST", body: JSON.stringify({ url: "http://localhost:3000/feed" }) })).status, 422);
+  assert.equal((await api("/api/feeds", { method: "POST", body: JSON.stringify({ url: "" }) })).status, 400);
+
+  // DB-backed listing: seed a source + items, verify shaping + enabled filter.
+  await db.feedSource.deleteMany({ where: { userId, url: "https://example.com/rss-test" } });
+  const src = await db.feedSource.create({ data: { userId, url: "https://example.com/rss-test", title: "Test Feed", enabled: true } });
+  await db.feedItem.createMany({
+    data: [
+      { sourceId: src.id, guid: "x1", title: "Item X1", link: "https://example.com/x1", publishedAt: new Date() },
+      { sourceId: src.id, guid: "x2", title: "Item X2", link: "https://example.com/x2", publishedAt: new Date(Date.now() - 1000) },
+    ],
+  });
+  const list = await (await api("/api/feeds")).json();
+  assert.ok(list.sources.some((s: { id: string; itemCount: number }) => s.id === src.id && s.itemCount === 2));
+  assert.ok(list.items.some((i: { title: string; sourceTitle: string }) => i.title === "Item X1" && i.sourceTitle === "Test Feed"));
+
+  // Disabling a source hides its items but keeps the source.
+  assert.equal((await api(`/api/feeds/${src.id}`, { method: "PATCH", body: JSON.stringify({ enabled: false }) })).status, 200);
+  const list2 = await (await api("/api/feeds")).json();
+  assert.ok(list2.sources.some((s: { id: string }) => s.id === src.id), "disabled source still listed");
+  assert.ok(!list2.items.some((i: { title: string }) => i.title === "Item X1"), "disabled source items hidden");
+
+  // Delete cascades items; unknown id 404s.
+  assert.equal((await api(`/api/feeds/${src.id}`, { method: "DELETE" })).status, 200);
+  assert.equal((await api(`/api/feeds/nope`, { method: "DELETE" })).status, 404);
+  assert.equal(await db.feedItem.count({ where: { sourceId: src.id } }), 0, "items cascade-deleted");
+});

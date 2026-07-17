@@ -7,6 +7,7 @@ import type {
   CalView,
   Category,
   CategoryDef,
+  FeedItemView,
   Lens,
   NotificationView,
   PostType,
@@ -41,6 +42,7 @@ interface PortalState {
   categories: CategoryDef[];
   notifications: NotificationView[];
   unread: number;
+  feedItems: FeedItemView[];
   killOn: boolean;
   autopilot: boolean;
 
@@ -59,6 +61,9 @@ interface PortalState {
   refreshNotifications: () => Promise<void>;
   markNotification: (id: string) => Promise<void>;
   markAllNotificationsRead: () => Promise<void>;
+  refreshFeedItems: () => Promise<void>;
+  pollFeeds: () => Promise<number>;
+  draftFromFeed: (item: FeedItemView) => void;
   createCategory: (name: string, color?: string) => Promise<boolean>;
   updateCategory: (id: string, patch: { name?: string; color?: string; hashtags?: string[] }) => Promise<boolean>;
   deleteCategory: (id: string) => Promise<boolean>;
@@ -124,6 +129,7 @@ export const usePortal = create<PortalState>()(
       categories: [],
       notifications: [],
       unread: 0,
+      feedItems: [],
       killOn: false,
       autopilot: false,
 
@@ -211,6 +217,33 @@ export const usePortal = create<PortalState>()(
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ all: true }),
         });
+      },
+
+      refreshFeedItems: async () => {
+        const res = await apiFetch("/api/feeds");
+        if (res?.ok) set({ feedItems: (await res.json()).items });
+      },
+
+      pollFeeds: async () => {
+        const res = await apiFetch("/api/feeds/refresh", { method: "POST" });
+        if (res?.ok) {
+          const d = await res.json();
+          set({ feedItems: d.items });
+          return d.polled as number;
+        }
+        return 0;
+      },
+
+      /** Seed the composer from a trending item — a real starting point (title +
+       * link), NOT AI-generated text. Categorizes as "Trend" when that category
+       * exists. */
+      draftFromFeed: (item) => {
+        const hasTrend = get().categories.some((c) => c.name === "Trend");
+        set({
+          caption: `${item.title}\n\nvia ${item.sourceTitle}: ${item.link}`,
+          ...(hasTrend ? { category: "Trend" } : {}),
+        });
+        get().notify("Draft started from trending item");
       },
 
       createCategory: async (name, color) => {

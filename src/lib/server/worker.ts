@@ -19,6 +19,7 @@ import { notify } from "./notifications";
 import { sweepOrphanUploads } from "./sweep";
 import { processNextVideo } from "./video";
 import { collectMetricsCycle } from "./insights";
+import { pollFeeds } from "./feeds";
 
 const POLL_MS = 15_000;
 const MAX_ATTEMPTS = 5;
@@ -204,6 +205,11 @@ export function startWorker() {
       // faster buys nothing), first run ~5min after boot.
       if (cycles % 1440 === 20) {
         await collectMetricsCycle().catch((err) => console.error("metrics cycle failed", err));
+      }
+      // Trend/RSS feeds every ~3h, first run ~2.5min after boot. Matches the
+      // "auto every 3h" the trending surface advertises.
+      if (cycles % 720 === 10) {
+        await pollFeeds().catch((err) => console.error("feed poll failed", err));
       }
       cycles += 1;
     } catch (err) {

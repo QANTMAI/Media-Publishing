@@ -28,6 +28,44 @@ model User {
   categories    Category[]
   credentials   Credential[]
   notifications Notification[]
+  feedSources   FeedSource[]
+}
+
+// An operator-added RSS/Atom feed the trending surface polls. No third-party
+// keys — just public feed URLs the operator chooses. Free and real.
+model FeedSource {
+  id            String    @id @default(cuid())
+  userId        String
+  url           String
+  title         String // feed's own <title>, captured on add
+  enabled       Boolean   @default(true)
+  lastFetchedAt DateTime?
+  lastError     String? // last poll failure, surfaced in Settings
+  createdAt     DateTime  @default(now())
+
+  user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items FeedItem[]
+
+  @@unique([userId, url])
+  @@index([userId, enabled])
+}
+
+// One item pulled from a feed. Deduped per source by guid (falls back to the
+// link). Pruned to a recent window by the poller.
+model FeedItem {
+  id          String    @id @default(cuid())
+  sourceId    String
+  guid        String // <guid>/<id>, or the link when absent
+  title       String
+  link        String
+  summary     String? // short text, HTML stripped
+  publishedAt DateTime? // item's own date, where present
+  fetchedAt   DateTime  @default(now())
+
+  source FeedSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceId, guid])
+  @@index([sourceId, publishedAt])
 }
 
 // Operator notifications, created by real events (a permanent publish failure,

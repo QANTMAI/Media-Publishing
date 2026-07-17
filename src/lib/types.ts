@@ -42,6 +42,17 @@ export interface CategoryDef {
   sortOrder: number;
 }
 
+/** One trending/RSS item, as served by GET /api/feeds. */
+export interface FeedItemView {
+  id: string;
+  sourceId: string;
+  sourceTitle: string;
+  title: string;
+  link: string;
+  summary: string | null;
+  publishedAt: string | null;
+}
+
 /** One notification, as served by GET /api/notifications. */
 export interface NotificationView {
   id: string;

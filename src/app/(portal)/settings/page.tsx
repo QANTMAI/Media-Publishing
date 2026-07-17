@@ -17,9 +17,9 @@ interface CredentialView {
   lastTestOk: boolean | null;
 }
 
-/* Settings (handoff #2 §7). Autopilot delivery mode, category management, and
- * encrypted API-key storage are real and persisted. Notification wiring lands
- * later — shown honestly as what's coming, not as a working control. */
+/* Settings (handoff #2 §7). Every card is real and persisted: Autopilot
+ * delivery mode, RSS trend sources, category management, encrypted API-key
+ * storage, and notification preferences. */
 
 type Mode = "review" | "auto";
 
@@ -93,11 +93,13 @@ export default function SettingsPage() {
             })}
           </div>
           <div style={{ marginTop: 14, fontSize: 12.5, color: "var(--color-neutral-600)" }}>
-            Trend &amp; news sources (which feeds Autopilot draws from, add-your-own RSS) arrive with the
-            optimizer/growth engine.
+            The trending feed the composer shows draws from your <strong>Trend sources</strong> below.
           </div>
         </div>
       </section>
+
+      {/* ── Trend sources (RSS/Atom) ── */}
+      <FeedSourcesCard />
 
       {/* ── Categories ── */}
       <CategoriesCard />
@@ -606,5 +608,159 @@ function ToggleRow({
         />
       </button>
     </div>
+  );
+}
+
+interface SourceView {
+  id: string;
+  url: string;
+  title: string;
+  enabled: boolean;
+  lastFetchedAt: string | null;
+  lastError: string | null;
+  itemCount: number;
+}
+
+/* Trend sources: the operator's own RSS/Atom feeds. Real and free — no keys.
+ * Adding validates the URL with a live fetch; the worker polls enabled feeds
+ * every few hours, and the composer's "Trending & breaking" rail shows items. */
+function FeedSourcesCard() {
+  const notify = usePortal((s) => s.notify);
+  const [sources, setSources] = useState<SourceView[] | null>(null);
+  const [url, setUrl] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  const refresh = async () => {
+    const res = await fetch("/api/feeds");
+    if (res.ok) setSources((await res.json()).sources);
+  };
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/feeds").then(async (res) => {
+      if (cancelled || !res.ok) return;
+      setSources((await res.json()).sources);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const add = async () => {
+    if (!url.trim()) return;
+    setAdding(true);
+    const res = await fetch("/api/feeds", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+    setAdding(false);
+    if (res.ok) {
+      setUrl("");
+      await refresh();
+      notify("Feed added");
+    } else {
+      notify((await res.json().catch(() => ({}))).error ?? "Could not add feed");
+    }
+  };
+
+  const toggle = async (s: SourceView) => {
+    await fetch(`/api/feeds/${s.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: !s.enabled }),
+    });
+    await refresh();
+  };
+
+  const remove = async (s: SourceView) => {
+    await fetch(`/api/feeds/${s.id}`, { method: "DELETE" });
+    await refresh();
+    notify("Feed removed");
+  };
+
+  return (
+    <section>
+      <p className="kick">Trend sources</p>
+      <div className="stack stack-strong" style={{ padding: "18px 20px" }}>
+        <div style={{ fontSize: 13, color: "var(--color-neutral-700)", marginBottom: 4 }}>
+          Add your own <strong>RSS / Atom feeds</strong> — industry blogs, newsletters, a Google News RSS query.
+          Free and public; no keys. The composer&apos;s <strong>Trending &amp; breaking</strong> rail shows the
+          latest items, polled every few hours.
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", margin: "10px 0 14px" }}>
+          <input
+            className="input"
+            value={url}
+            placeholder="Paste an RSS or Atom feed URL…"
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") add();
+            }}
+            style={{ flex: 1 }}
+          />
+          <button className="btn btn-primary" onClick={add} disabled={adding || !url.trim()} style={{ flex: "none" }}>
+            {adding ? "Checking…" : (
+              <>
+                <Plus size={15} /> Add
+              </>
+            )}
+          </button>
+        </div>
+
+        {sources === null ? (
+          <div style={{ fontSize: 13, color: "var(--color-neutral-600)" }}>Loading…</div>
+        ) : sources.length === 0 ? (
+          <div style={{ fontSize: 13, color: "var(--color-neutral-600)" }}>
+            No feeds yet. Paste a feed URL above to start seeing trending items in the composer.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {sources.map((s) => (
+              <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderTop: "1px solid var(--color-divider)" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.title}</div>
+                  <div style={{ fontSize: 11, color: "var(--color-neutral-600)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.url}</div>
+                  {s.lastError ? (
+                    <div style={{ fontSize: 11, color: "var(--color-accent-2-700)", fontWeight: 600 }}>Last poll failed: {s.lastError}</div>
+                  ) : (
+                    <div style={{ fontSize: 11, color: "var(--color-neutral-500)" }}>
+                      {s.itemCount} item{s.itemCount === 1 ? "" : "s"}
+                      {s.lastFetchedAt ? ` · updated ${new Date(s.lastFetchedAt).toLocaleDateString()}` : ""}
+                    </div>
+                  )}
+                </div>
+                <button
+                  role="switch"
+                  aria-checked={s.enabled}
+                  aria-label={`${s.title} enabled`}
+                  onClick={() => toggle(s)}
+                  style={{
+                    flex: "none",
+                    width: 44,
+                    height: 26,
+                    borderRadius: 999,
+                    border: "1px solid var(--color-divider)",
+                    background: s.enabled ? "var(--color-accent)" : "var(--color-neutral-300)",
+                    position: "relative",
+                    cursor: "pointer",
+                  }}
+                >
+                  <span style={{ position: "absolute", top: 2, left: s.enabled ? 20 : 2, width: 20, height: 20, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 2px rgba(0,0,0,0.3)", transition: "left 0.15s" }} />
+                </button>
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => remove(s)}
+                  aria-label={`Remove ${s.title}`}
+                  title="Remove feed"
+                  style={{ flex: "none", padding: "0 10px" }}
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
