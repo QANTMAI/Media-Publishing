@@ -21,11 +21,33 @@ model User {
   totpLastStep BigInt? // last accepted TOTP time-step — blocks code replay
   createdAt    DateTime @default(now())
 
-  accounts   SocialAccount[]
-  posts      Post[]
-  assets     Asset[]
-  audits     AuditEvent[]
-  categories Category[]
+  accounts    SocialAccount[]
+  posts       Post[]
+  assets      Asset[]
+  audits      AuditEvent[]
+  categories  Category[]
+  credentials Credential[]
+}
+
+// Operator-supplied API keys (e.g. Anthropic), encrypted at rest with the same
+// AES-256-GCM vault as OAuth tokens. Write-only: the ciphertext and plaintext
+// never go to the client — only `hint` (last 4 chars) is returned, for masked
+// display. One key per provider per operator.
+model Credential {
+  id           String    @id @default(cuid())
+  userId       String
+  provider     String // "anthropic" (extensible)
+  ciphertext   String // base64: iv · authTag · ciphertext (vault format)
+  keyVersion   Int       @default(1)
+  hint         String // last 4 chars of the key — non-sensitive, for masking
+  lastTestedAt DateTime? // last "Test key" run
+  lastTestOk   Boolean? // result of that run
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
 }
 
 // Content categories — per operator, editable (create/rename/recolor/delete).

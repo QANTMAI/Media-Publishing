@@ -1,13 +1,25 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Check, Plus, Trash2, X } from "lucide-react";
 import { usePortal } from "@/lib/store";
 import type { CategoryDef } from "@/lib/types";
 
-/* Settings (handoff #2 §7). Autopilot delivery mode and category management are
- * real and persisted. API-key storage and notification wiring land later —
- * shown here honestly as what's coming, not as working controls. */
+interface CredentialView {
+  provider: string;
+  label: string;
+  keyHint: string;
+  where: string;
+  set: boolean;
+  hint: string | null;
+  updatedAt: string | null;
+  lastTestedAt: string | null;
+  lastTestOk: boolean | null;
+}
+
+/* Settings (handoff #2 §7). Autopilot delivery mode, category management, and
+ * encrypted API-key storage are real and persisted. Notification wiring lands
+ * later — shown honestly as what's coming, not as a working control. */
 
 type Mode = "review" | "auto";
 
@@ -90,23 +102,8 @@ export default function SettingsPage() {
       {/* ── Categories ── */}
       <CategoriesCard />
 
-      {/* ── Integrations / keys (Phase B) ── */}
-      <section>
-        <p className="kick">Integrations &amp; keys</p>
-        <div className="stack stack-strong" style={{ padding: "18px 20px" }}>
-          <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 15, marginBottom: 4 }}>
-            AI model &amp; platform credentials
-          </div>
-          <div style={{ fontSize: 13, color: "var(--color-neutral-700)" }}>
-            Bring-your-own AI model keys (OpenAI, Anthropic, …) and platform app keys/secrets. When this lands,
-            every secret is stored <strong>encrypted in the vault</strong>, shown masked, and never sent back to
-            the browser — consistent with how OAuth tokens are already handled.
-          </div>
-          <div style={{ marginTop: 10, fontSize: 12, color: "var(--color-neutral-600)" }}>
-            Configured in the next phase.
-          </div>
-        </div>
-      </section>
+      {/* ── Integrations / keys ── */}
+      <IntegrationsCard />
 
       {/* ── Notifications (Phase B) ── */}
       <PlaceholderCard
@@ -257,6 +254,227 @@ function CategoryRow({
       >
         <Trash2 size={15} />
       </button>
+    </div>
+  );
+}
+
+/* Integrations & keys: operator API keys, stored write-only in the AES-256-GCM
+ * vault. The browser never receives a key or ciphertext — only whether one is
+ * set and its last-4 hint. A "Test" button validates the key with a real
+ * provider call. Honest status: keys are saved but not yet consumed (the AI
+ * studio that will use them ships later). */
+function IntegrationsCard() {
+  const notify = usePortal((s) => s.notify);
+  const [creds, setCreds] = useState<CredentialView[] | null>(null);
+
+  const refresh = async () => {
+    const res = await fetch("/api/credentials");
+    if (res.ok) setCreds((await res.json()).credentials);
+  };
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/credentials").then(async (res) => {
+      if (cancelled || !res.ok) return;
+      setCreds((await res.json()).credentials);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <section>
+      <p className="kick">Integrations &amp; keys</p>
+      <div className="stack stack-strong" style={{ padding: "18px 20px" }}>
+        <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 15, marginBottom: 4 }}>
+          AI model credentials
+        </div>
+        <div style={{ fontSize: 13, color: "var(--color-neutral-700)", marginBottom: 6 }}>
+          Bring your own key. Every secret is stored <strong>encrypted in the vault</strong> (AES-256-GCM, the same
+          as your OAuth tokens), shown masked, and never sent back to the browser once saved.
+        </div>
+        <div style={{ fontSize: 12, color: "var(--color-neutral-600)", marginBottom: 14 }}>
+          Keys are saved now and used by AI captions when the AI studio ships — nothing calls them automatically
+          before then. Use <strong>Test</strong> to confirm a key works.
+        </div>
+
+        {creds === null ? (
+          <div style={{ fontSize: 13, color: "var(--color-neutral-600)" }}>Loading…</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {creds.map((c) => (
+              <CredentialRow key={c.provider} cred={c} notify={notify} onChange={refresh} />
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function CredentialRow({
+  cred,
+  notify,
+  onChange,
+}: {
+  cred: CredentialView;
+  notify: (m: string) => void;
+  onChange: () => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(!cred.set);
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState<null | "save" | "test" | "delete">(null);
+  const [testResult, setTestResult] = useState<{ ok: boolean; status: string } | null>(null);
+
+  const save = async () => {
+    if (!value.trim()) return;
+    setBusy("save");
+    const res = await fetch(`/api/credentials/${cred.provider}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: value }),
+    });
+    setBusy(null);
+    if (res.ok) {
+      setValue("");
+      setEditing(false);
+      setTestResult(null);
+      await onChange();
+      notify(`${cred.label} key saved`);
+    } else {
+      notify((await res.json().catch(() => ({}))).error ?? "Could not save key");
+    }
+  };
+
+  const test = async () => {
+    setBusy("test");
+    const res = await fetch(`/api/credentials/${cred.provider}/test`, { method: "POST" });
+    setBusy(null);
+    const r = await res.json().catch(() => ({ ok: false, status: "Test failed" }));
+    setTestResult(r);
+    await onChange();
+  };
+
+  const remove = async () => {
+    setBusy("delete");
+    const res = await fetch(`/api/credentials/${cred.provider}`, { method: "DELETE" });
+    setBusy(null);
+    if (res.ok) {
+      setTestResult(null);
+      setEditing(true);
+      await onChange();
+      notify(`${cred.label} key removed`);
+    } else {
+      notify("Could not remove key");
+    }
+  };
+
+  const lastTest =
+    testResult ??
+    (cred.lastTestOk == null ? null : { ok: cred.lastTestOk, status: cred.lastTestOk ? "Key is valid" : "Key was rejected" });
+
+  return (
+    <div style={{ border: "1px solid var(--color-divider)", borderRadius: 12, padding: "14px 16px" }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+        <div style={{ fontWeight: 700, fontSize: 14 }}>{cred.label}</div>
+        <div style={{ fontSize: 11, color: "var(--color-neutral-600)" }}>{cred.where}</div>
+      </div>
+
+      {cred.set && !editing ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span
+            style={{
+              fontFamily: "var(--font-mono, monospace)",
+              fontSize: 13,
+              padding: "5px 10px",
+              border: "1px solid var(--color-divider)",
+              borderRadius: 8,
+              background: "var(--color-neutral-100)",
+              letterSpacing: "0.08em",
+            }}
+          >
+            ···· {cred.hint}
+          </span>
+          <span style={{ fontSize: 11, color: "var(--color-neutral-600)" }}>
+            updated {cred.updatedAt ? new Date(cred.updatedAt).toLocaleDateString() : "—"}
+          </span>
+          <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
+            <button className="btn btn-secondary" onClick={test} disabled={busy !== null} style={{ fontSize: 12, padding: "5px 12px" }}>
+              {busy === "test" ? "Testing…" : "Test"}
+            </button>
+            <button className="btn btn-ghost" onClick={() => setEditing(true)} disabled={busy !== null} style={{ fontSize: 12, padding: "5px 12px" }}>
+              Replace
+            </button>
+            <button
+              className="btn btn-ghost"
+              onClick={remove}
+              disabled={busy !== null}
+              aria-label={`Remove ${cred.label} key`}
+              title="Remove key"
+              style={{ fontSize: 12, padding: "5px 10px" }}
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <input
+            className="input"
+            type="password"
+            autoComplete="off"
+            value={value}
+            placeholder={cred.keyHint}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") save();
+              if (e.key === "Escape" && cred.set) {
+                setEditing(false);
+                setValue("");
+              }
+            }}
+            style={{ flex: 1 }}
+          />
+          <button className="btn btn-primary" onClick={save} disabled={busy !== null || !value.trim()} style={{ flex: "none" }}>
+            {busy === "save" ? "Saving…" : "Save"}
+          </button>
+          {cred.set && (
+            <button
+              className="btn btn-ghost"
+              onClick={() => {
+                setEditing(false);
+                setValue("");
+              }}
+              disabled={busy !== null}
+              style={{ flex: "none" }}
+            >
+              Cancel
+            </button>
+          )}
+        </div>
+      )}
+
+      {lastTest && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            marginTop: 10,
+            fontSize: 12,
+            fontWeight: 600,
+            color: lastTest.ok ? "var(--color-accent-700)" : "var(--color-accent-2-700)",
+          }}
+        >
+          {lastTest.ok ? <Check size={14} /> : <X size={14} />}
+          {lastTest.status}
+          {cred.lastTestedAt && !testResult && (
+            <span style={{ fontWeight: 400, color: "var(--color-neutral-600)" }}>
+              · {new Date(cred.lastTestedAt).toLocaleString()}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }

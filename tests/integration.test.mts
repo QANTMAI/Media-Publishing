@@ -743,3 +743,54 @@ test("categories: defaults seed, create, rename relabels posts, recolor, delete 
     await db.category.create({ data: { userId, name: c.name, color: c.color, hashtags: c.hashtags, sortOrder: c.sortOrder } });
   }
 });
+
+test("credentials: keys are stored encrypted, returned only masked, and deletable", async () => {
+  // Clean slate for the anthropic provider.
+  await db.credential.deleteMany({ where: { userId, provider: "anthropic" } });
+
+  // Unset provider reports set:false and no hint; OpenAI is never offered.
+  const before = await (await api("/api/credentials")).json();
+  const anth = before.credentials.find((c: { provider: string }) => c.provider === "anthropic");
+  assert.ok(anth, "anthropic provider is listed");
+  assert.equal(anth.set, false);
+  assert.equal(anth.hint, null);
+  assert.ok(!before.credentials.some((c: { provider: string }) => c.provider === "openai"), "OpenAI is never a provider");
+
+  // Testing with no key saved short-circuits (no network call).
+  const noKey = await (await api("/api/credentials/anthropic/test", { method: "POST" })).json();
+  assert.equal(noKey.ok, false);
+  assert.match(noKey.status, /no key/i);
+
+  // Validation: empty / whitespace / too-short / unknown-provider all rejected.
+  assert.equal((await api("/api/credentials/anthropic", { method: "PUT", body: JSON.stringify({ key: "" }) })).status, 400);
+  assert.equal((await api("/api/credentials/anthropic", { method: "PUT", body: JSON.stringify({ key: "has space" }) })).status, 400);
+  assert.equal((await api("/api/credentials/anthropic", { method: "PUT", body: JSON.stringify({ key: "short" }) })).status, 400);
+  assert.equal((await api("/api/credentials/nope", { method: "PUT", body: JSON.stringify({ key: "sk-ant-whatever-1234" }) })).status, 404);
+
+  // Store a (bogus) key — never live-tested here to avoid a network call.
+  const secret = "sk-ant-test-DO-NOT-USE-abcd";
+  const put = await api("/api/credentials/anthropic", { method: "PUT", body: JSON.stringify({ key: secret }) });
+  assert.equal(put.status, 200);
+  const putBody = await put.json();
+  assert.equal(putBody.hint, "abcd", "response carries only the last-4 hint");
+  assert.ok(!JSON.stringify(putBody).includes(secret), "the key is never echoed back");
+
+  // Masked view: set:true + hint, and crucially no ciphertext / key anywhere.
+  const after = await (await api("/api/credentials")).json();
+  const set = after.credentials.find((c: { provider: string }) => c.provider === "anthropic");
+  assert.equal(set.set, true);
+  assert.equal(set.hint, "abcd");
+  assert.ok(!JSON.stringify(after).includes(secret), "GET never leaks the key");
+  assert.ok(!JSON.stringify(after).toLowerCase().includes("ciphertext"), "GET never leaks ciphertext");
+
+  // At rest it's encrypted, not plaintext.
+  const row = await db.credential.findUnique({ where: { userId_provider: { userId, provider: "anthropic" } } });
+  assert.ok(row && row.ciphertext && !row.ciphertext.includes(secret), "stored value is encrypted, not plaintext");
+  assert.equal(row!.lastTestOk, null, "a fresh key has no stale test result");
+
+  // Delete → gone; deleting again 404s.
+  assert.equal((await api("/api/credentials/anthropic", { method: "DELETE" })).status, 200);
+  const gone = await (await api("/api/credentials")).json();
+  assert.equal(gone.credentials.find((c: { provider: string }) => c.provider === "anthropic").set, false);
+  assert.equal((await api("/api/credentials/anthropic", { method: "DELETE" })).status, 404);
+});
