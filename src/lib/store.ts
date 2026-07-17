@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type {
-  AssetItem,
   CalView,
   Category,
   Lens,
@@ -18,17 +17,6 @@ import { MARK_TO_PLATFORM } from "./platforms";
  * jobs (/api/posts), kill switch + autopilot (/api/settings). This store is a
  * client cache of those plus composer/view preferences; only the preferences
  * are persisted locally. */
-
-export const LIBRARY_ASSETS: AssetItem[] = [
-  { type: "IMAGE", name: "capsule-01.jpg",   tag: "Promo" },
-  { type: "VIDEO", name: "studio-tour.mp4",  tag: "Tutorial" },
-  { type: "IMAGE", name: "bts-desk.jpg",     tag: "Behind the scenes" },
-  { type: "IMAGE", name: "product-flat.jpg", tag: "Promo" },
-  { type: "IMAGE", name: "quote-card.png",   tag: "Educational" },
-  { type: "VIDEO", name: "reel-trend.mp4",   tag: "Trend" },
-  { type: "IMAGE", name: "team-shot.jpg",    tag: "Behind the scenes" },
-  { type: "IMAGE", name: "launch-hero.jpg",  tag: "Promo" },
-];
 
 interface PortalState {
   // composer preferences

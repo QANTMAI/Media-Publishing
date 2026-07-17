@@ -1,8 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Heart, MessageCircle, Share, Sparkles } from "lucide-react";
+import { useRef, useState } from "react";
+import { Heart, MessageCircle, Share, Sparkles, X as XIcon } from "lucide-react";
 import { usePortal, selectableAccounts } from "@/lib/store";
+import { uploadAsset, type UploadedAsset } from "@/lib/upload";
 import {
   BRAND_HASHTAGS,
   CATEGORIES,
@@ -18,6 +20,24 @@ const TIMEZONES = ["ET (Eastern)", "CT (Central)", "MT (Mountain)", "PT (Pacific
 export default function ComposePage() {
   const router = useRouter();
   const s = usePortal();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [attached, setAttached] = useState<UploadedAsset | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const attachFile = async (file: File | undefined) => {
+    if (!file) return;
+    setUploading(true);
+    try {
+      const asset = await uploadAsset(file, s.category);
+      setAttached(asset);
+      s.setComposer({ postType: asset.type });
+      s.notify(`Attached ${asset.filename}`);
+    } catch (err) {
+      s.notify(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const selAccts = selectableAccounts(s);
   const selPlatforms: string[] = [];
@@ -63,6 +83,7 @@ export default function ComposePage() {
         baseCaption: s.caption,
         category: s.category,
         accountIds: selAccts,
+        assetIds: attached ? [attached.id] : [],
         date: s.date,
         time: s.time,
         tz: s.tz,
@@ -71,6 +92,7 @@ export default function ComposePage() {
     if (res.ok) {
       const d = await res.json();
       s.setComposer({ caption: "" });
+      setAttached(null);
       await s.refreshPosts();
       s.notify(`Scheduled ${d.targetCount} post${d.targetCount > 1 ? "s" : ""} · ${s.time} ${s.tz.split(" ")[0]}`);
       router.push("/calendar");
@@ -96,28 +118,107 @@ export default function ComposePage() {
             </button>
           </div>
         </div>
-        <div
-          style={{
-            border: "2px dashed var(--color-neutral-400)",
-            background: "var(--color-neutral-100)",
-            height: 150,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 6,
-            marginBottom: 16,
+        <input
+          ref={fileRef}
+          type="file"
+          accept={s.postType === "video" ? "video/mp4,video/quicktime" : "image/jpeg,image/png,image/webp,image/gif"}
+          hidden
+          onChange={(e) => {
+            attachFile(e.target.files?.[0]);
+            e.target.value = "";
           }}
-        >
-          <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 15 }}>
-            {s.postType === "video" ? "Drop or record a video" : "Drop an image"}
+        />
+        {attached ? (
+          <div
+            style={{
+              border: "2px solid var(--color-text)",
+              background: "var(--color-bg)",
+              display: "flex",
+              alignItems: "center",
+              gap: 14,
+              padding: 10,
+              marginBottom: 16,
+            }}
+          >
+            <div
+              style={{
+                width: 120,
+                height: 120,
+                background: "var(--color-neutral-200)",
+                flex: "none",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 11,
+                color: "var(--color-neutral-500)",
+                overflow: "hidden",
+              }}
+            >
+              {attached.thumbUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={attached.thumbUrl}
+                  alt={attached.filename}
+                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                />
+              ) : (
+                "VIDEO"
+              )}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 600, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {attached.filename}
+              </div>
+              <div style={{ fontSize: 12, color: "var(--color-neutral-600)" }}>
+                {attached.type === "image"
+                  ? "Variants generated: 1:1 · 4:5 · 16:9 · thumbnail"
+                  : "Stored — transcode variants land with video tooling"}
+              </div>
+            </div>
+            <button
+              className="btn btn-ghost"
+              onClick={() => setAttached(null)}
+              title="Remove attachment"
+              aria-label="Remove attachment"
+              style={{ flex: "none", padding: "6px 8px" }}
+            >
+              <XIcon size={15} />
+            </button>
           </div>
-          <div style={{ fontSize: 12, color: "var(--color-neutral-600)" }}>
-            {s.postType === "video"
-              ? "Up to 4K · auto-captions · 9:16 / 1:1 / 16:9 exports"
-              : "Auto-resizes to 1:1 · portrait · landscape per platform"}
-          </div>
-        </div>
+        ) : (
+          <button
+            onClick={() => fileRef.current?.click()}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              attachFile(e.dataTransfer.files?.[0]);
+            }}
+            disabled={uploading}
+            style={{
+              width: "100%",
+              border: "2px dashed var(--color-neutral-400)",
+              background: "var(--color-neutral-100)",
+              height: 150,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              marginBottom: 16,
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 15 }}>
+              {uploading ? "Uploading…" : s.postType === "video" ? "Drop or pick a video" : "Drop or pick an image"}
+            </div>
+            <div style={{ fontSize: 12, color: "var(--color-neutral-600)" }}>
+              {s.postType === "video"
+                ? "MP4/MOV · stored privately, served via signed URLs"
+                : "Auto-generates 1:1 · 4:5 · 16:9 variants per platform"}
+            </div>
+          </button>
+        )}
 
         {s.postType === "video" && (
           <div
@@ -451,9 +552,19 @@ export default function ComposePage() {
               justifyContent: "center",
               color: "var(--color-neutral-500)",
               fontSize: 12,
+              overflow: "hidden",
             }}
           >
-            image / video
+            {attached?.thumbUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={attached.thumbUrl}
+                alt=""
+                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+              />
+            ) : (
+              "image / video"
+            )}
           </div>
           <div style={{ padding: "12px 14px", fontSize: 13, lineHeight: 1.5, minHeight: 60 }}>
             {preview || "Your caption preview appears here as you type…"}

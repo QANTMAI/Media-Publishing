@@ -27,6 +27,7 @@
     "qrcode": "^1.5.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "sharp": "^0.35.3",
     "zustand": "^5.0.2"
   },
   "devDependencies": {

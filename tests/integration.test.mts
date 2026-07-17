@@ -275,6 +275,134 @@ test("reschedule moves the pending job; cancel removes it and drops to draft", a
   await db.post.delete({ where: { id: postId } });
 });
 
+test("media pipeline: presign → upload → variants → list → attach → in-use guard → delete", async () => {
+  // A real 1200×900 JPEG generated in-process — no fixtures, no fakes.
+  const sharp = (await import("sharp")).default;
+  const jpeg = await sharp({
+    create: { width: 1200, height: 900, channels: 3, background: { r: 47, g: 84, b: 209 } },
+  })
+    .jpeg()
+    .toBuffer();
+
+  // Presign validates the declaration.
+  const badMime = await api("/api/assets/presign", {
+    method: "POST",
+    body: JSON.stringify({ kind: "image", mime: "application/zip", size: 100, filename: "x.zip" }),
+  });
+  assert.equal(badMime.status, 422, "non-media mime refused");
+
+  const presign = await api("/api/assets/presign", {
+    method: "POST",
+    body: JSON.stringify({ kind: "image", mime: "image/jpeg", size: jpeg.length, filename: "test-shot.jpg" }),
+  });
+  assert.equal(presign.status, 200);
+  const { key, putUrl } = await presign.json();
+
+  // Unsigned access to the same key must fail both ways.
+  const unsignedGet = await fetch(`${BASE}/api/storage/${key}`);
+  assert.equal(unsignedGet.status, 403, "unsigned GET refused");
+  const unsignedPut = await fetch(`${BASE}/api/storage/${key}`, { method: "PUT", body: jpeg });
+  assert.equal(unsignedPut.status, 403, "unsigned PUT refused");
+
+  // Signed upload + completion (server re-validates and generates variants).
+  const put = await fetch(`${BASE}${putUrl}`, { method: "PUT", body: new Uint8Array(jpeg) });
+  assert.equal(put.status, 201);
+  const complete = await api("/api/assets/complete", {
+    method: "POST",
+    body: JSON.stringify({ key, mime: "image/jpeg", filename: "test-shot.jpg" }),
+  });
+  assert.equal(complete.status, 201);
+  const { id: assetId, thumbUrl } = await complete.json();
+  assert.ok(thumbUrl, "thumbnail variant generated");
+
+  const thumb = await fetch(`${BASE}${thumbUrl}`);
+  assert.equal(thumb.status, 200);
+  assert.equal(thumb.headers.get("content-type"), "image/jpeg");
+
+  const doubleComplete = await api("/api/assets/complete", {
+    method: "POST",
+    body: JSON.stringify({ key, mime: "image/jpeg", filename: "test-shot.jpg" }),
+  });
+  assert.equal(doubleComplete.status, 409, "completing the same key twice refused");
+
+  const list = await (await api("/api/assets")).json();
+  const listed = list.assets.find((a: { id: string }) => a.id === assetId);
+  assert.ok(listed && listed.width === 1200 && listed.height === 900, "dimensions probed");
+
+  // Attach to a scheduled post → delete must be refused while in use.
+  const ig = await db.socialAccount.findFirst({
+    where: { platform: "instagram", status: "connected", tokenRef: { not: null } },
+  });
+  const post = await api("/api/posts", {
+    method: "POST",
+    body: JSON.stringify({
+      baseCaption: "media attach test",
+      accountIds: [ig!.id],
+      assetIds: [assetId],
+      date: "2030-01-01",
+      time: "10:00",
+      tz: "UTC",
+    }),
+  });
+  assert.equal(post.status, 201);
+  const { postId } = await post.json();
+  const target = await db.postTarget.findFirst({ where: { postId } });
+  assert.equal(target!.assetIds, assetId, "asset recorded on the target");
+
+  const blockedDelete = await api(`/api/assets/${assetId}`, { method: "DELETE" });
+  assert.equal(blockedDelete.status, 409, "in-use asset cannot be deleted");
+
+  await api(`/api/targets/${target!.id}/cancel`, { method: "POST" });
+  const del = await api(`/api/assets/${assetId}`, { method: "DELETE" });
+  assert.equal(del.status, 200, "deletable once no longer scheduled");
+  const goneThumb = await fetch(`${BASE}${thumbUrl}`);
+  assert.equal(goneThumb.status, 404, "variant files removed");
+
+  await db.post.delete({ where: { id: postId } });
+});
+
+test("orphan sweep deletes abandoned uploads, keeps completed assets", async () => {
+  const { mkdir, writeFile, utimes, stat } = await import("fs/promises");
+  const path = (await import("path")).default;
+  const root = path.resolve(process.cwd(), process.env.STORAGE_DIR ?? "storage");
+
+  // An abandoned upload: bytes on disk, no Asset row, older than the grace period.
+  const orphanKey = "2020/01/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.jpg";
+  const orphanAbs = path.join(root, orphanKey);
+  await mkdir(path.dirname(orphanAbs), { recursive: true });
+  await writeFile(orphanAbs, Buffer.from("abandoned bytes"));
+  const old = new Date(Date.now() - 48 * 60 * 60_000);
+  await utimes(orphanAbs, old, old);
+
+  // A completed asset's file must survive even if old.
+  const sharp = (await import("sharp")).default;
+  const jpeg = await sharp({ create: { width: 64, height: 64, channels: 3, background: "#000" } })
+    .jpeg()
+    .toBuffer();
+  const presign = await api("/api/assets/presign", {
+    method: "POST",
+    body: JSON.stringify({ kind: "image", mime: "image/jpeg", size: jpeg.length, filename: "keeper.jpg" }),
+  });
+  const { key, putUrl } = await presign.json();
+  await fetch(`${BASE}${putUrl}`, { method: "PUT", body: new Uint8Array(jpeg) });
+  const complete = await api("/api/assets/complete", {
+    method: "POST",
+    body: JSON.stringify({ key, mime: "image/jpeg", filename: "keeper.jpg" }),
+  });
+  assert.equal(complete.status, 201);
+  const { id: keeperId } = await complete.json();
+  const keeperAbs = path.join(root, key);
+  await utimes(keeperAbs, old, old);
+
+  const { sweepOrphanUploads } = await import("../src/lib/server/sweep");
+  const { deleted } = await sweepOrphanUploads();
+  assert.ok(deleted >= 1, "orphan removed");
+  await assert.rejects(stat(orphanAbs), "orphan file gone");
+  await stat(keeperAbs); // completed asset survives
+
+  await api(`/api/assets/${keeperId}`, { method: "DELETE" });
+});
+
 test("autopilot plans real scheduled posts and cleans up on off", async () => {
   const on = await api("/api/autopilot", { method: "POST", body: JSON.stringify({ on: true }) });
   assert.equal(on.status, 200);

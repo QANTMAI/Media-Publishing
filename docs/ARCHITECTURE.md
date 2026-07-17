@@ -79,6 +79,24 @@ revoke endpoint kills the whole user grant).
   then the preauth is revoked); accepted TOTP time-steps are persisted so a
   code can never be replayed, even inside its validity window.
 
+## Media storage
+
+Files live in **private object storage** and are reachable only through
+signed, expiring URLs — there is no public directory and no unsigned access.
+The local adapter is filesystem-backed; its contract (server-generated keys,
+presigned PUT/GET, delete) mirrors S3 semantics so production swaps the
+implementation, not the call sites. Signatures are HMAC-SHA256 over
+method·key·expiry, verified in constant time; storage keys are generated
+server-side, so path traversal is impossible by construction.
+
+Upload flow: `presign` (validates the declared type/size, mints a 10-minute
+PUT URL) → the client streams bytes directly to storage → `complete`
+re-validates server-side, probes dimensions, and generates platform-fit
+image variants via sharp (1:1, 4:5, 16:9, thumbnail). The database stores
+only `Asset` metadata and keys — never bytes. Deleting an asset is refused
+while a scheduled post references it. Video is stored as-is; transcoding
+(ffmpeg) lands with the video tooling ticket.
+
 ## Platform integrations
 
 Meta (Instagram + Facebook + Threads) share one developer app: OAuth code →
@@ -87,16 +105,19 @@ all stored in the vault. With no Meta app configured (`OAUTH_MOCK=1`), the
 connect flow simulates the grant end-to-end with clearly labeled mock tokens
 so everything is testable before platform app review completes.
 
-Publishing today: Facebook Page posts via the Graph API (real tokens), mock
-publishes for mock tokens. Instagram publishing requires hosted media
-(container flow) and lands with the media pipeline.
+Publishing today: Facebook Page posts and the Instagram container flow
+(create media container from a hosted image URL → publish → read back the
+permalink) via the Graph API for real tokens; mock tokens publish to labeled
+mock permalinks. Real Instagram publishing additionally needs
+`PUBLIC_ORIGIN` set so Meta can fetch the signed media URL.
 
 ## What's next
 
-1. **Media pipeline** — object storage, signed URLs, transcode variants;
-   unblocks real Instagram publishing.
-2. Remaining platform integrations in waves: X, LinkedIn, YouTube →
+1. Remaining platform integrations in waves: X, LinkedIn, YouTube →
    TikTok, Pinterest, Google Business → Bluesky.
+2. Video tooling: ffmpeg transcodes (9:16 / 1:1 / 16:9), auto-captions,
+   cover picker — also unblocks Instagram Reels publishing.
 3. Analytics pulls from platform APIs; plain-English insights.
 4. AI content studio (bring-your-own-key) and the optimizer/growth engine.
-5. Production hardening: Postgres, KMS, backups, observability, pen test.
+5. Production hardening: Postgres, KMS, S3 storage adapter, backups,
+   observability, pen test.

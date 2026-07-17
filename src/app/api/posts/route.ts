@@ -30,6 +30,7 @@ export async function GET() {
       scheduledAt: t.scheduledAt?.toISOString() ?? null,
       permalink: t.permalink,
       error: t.error,
+      assetIds: t.assetIds ? t.assetIds.split(",") : [],
       autopilot: t.post.source === "autopilot",
       account: t.account,
     })),
@@ -46,6 +47,7 @@ export async function POST(req: Request) {
     baseCaption?: string;
     category?: string;
     accountIds?: string[];
+    assetIds?: string[];
     date?: string;
     time?: string;
     tz?: string;
@@ -94,6 +96,15 @@ export async function POST(req: Request) {
     }
   }
 
+  // Attached media must exist and belong to the operator.
+  const assetIds = body.assetIds ?? [];
+  if (assetIds.length) {
+    const owned = await db.asset.count({ where: { id: { in: assetIds }, userId } });
+    if (owned !== assetIds.length) {
+      return NextResponse.json({ error: "Unknown asset in attachment" }, { status: 400 });
+    }
+  }
+
   const post = await db.post.create({
     data: {
       userId,
@@ -105,6 +116,7 @@ export async function POST(req: Request) {
           socialAccountId: a.id,
           scheduledAt,
           state: "scheduled",
+          assetIds: assetIds.length ? assetIds.join(",") : null,
         })),
       },
     },

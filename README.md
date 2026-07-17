@@ -66,7 +66,9 @@ zustand · FullCalendar · jose · otplib · bcryptjs
 ## Status
 
 The UI (all screens), real auth, the encrypted vault, the Meta OAuth connect
-flow, and the scheduling/publish pipeline are implemented and tested
-(23-test suite). Media upload (which unblocks real Instagram publishing),
-remaining platform integrations, analytics pulls, and the AI studio are on
-the roadmap — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#whats-next).
+flow, the scheduling/publish pipeline, and the media pipeline (private
+storage with signed URLs, uploads, image variants, asset library, composer
+attachments, Instagram container flow) are implemented and tested (28-test
+suite). Remaining platform integrations, video tooling, analytics pulls, and
+the AI studio are on the roadmap — see
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#whats-next).

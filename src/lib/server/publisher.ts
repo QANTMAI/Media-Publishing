@@ -12,8 +12,21 @@
 
 import { db } from "./db";
 import { readSecret } from "./vault";
+import { presignUrl } from "./storage";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
+
+/** Absolute, platform-fetchable URL for a stored object. Platforms download
+ * media from us, so the app needs a public origin (production). */
+function publicMediaUrl(key: string, ttlSeconds: number): string {
+  const origin = process.env.PUBLIC_ORIGIN;
+  if (!origin) {
+    throw new PermanentError(
+      "PUBLIC_ORIGIN is not configured — platforms must be able to fetch media from this portal",
+    );
+  }
+  return origin.replace(/\/$/, "") + presignUrl("GET", key, ttlSeconds);
+}
 
 export class PermanentError extends Error {
   permanent = true as const;
@@ -58,13 +71,91 @@ export async function publishTarget(postTargetId: string): Promise<PublishResult
   switch (account.platform) {
     case "facebook":
       return publishFacebookPage(account.externalId, token, caption);
-    case "instagram":
-      throw new PermanentError(
-        "Instagram publishing requires hosted media (container flow) — blocked on the media pipeline (T-106)",
-      );
+    case "instagram": {
+      const assetId = target.assetIds?.split(",")[0];
+      if (!assetId) {
+        throw new PermanentError("Instagram requires media — attach an image to this post");
+      }
+      const asset = await db.asset.findUnique({ where: { id: assetId } });
+      if (!asset) throw new PermanentError("Attached media no longer exists");
+      if (asset.type !== "image") {
+        throw new PermanentError("Instagram video (Reels) publishing lands with the video pipeline (T-302)");
+      }
+      // Prefer the 4:5 portrait variant; fall back to the original.
+      let mediaKey = asset.storageKey;
+      try {
+        const variants = asset.variants ? (JSON.parse(asset.variants) as { portrait?: string }) : {};
+        if (variants.portrait) mediaKey = variants.portrait;
+      } catch {
+        /* use original */
+      }
+      return publishInstagram(account.externalId, token, caption, mediaKey);
+    }
     default:
       throw new PermanentError(`${account.name} publishing is not integrated yet (Waves 1–3)`);
   }
+}
+
+/** Instagram container flow: create a media container from a hosted image
+ * URL, publish it, then read back the permalink. */
+async function publishInstagram(
+  igUserId: string,
+  token: string,
+  caption: string,
+  mediaKey: string,
+): Promise<PublishResult> {
+  const imageUrl = publicMediaUrl(mediaKey, 3600);
+
+  const container = await graphPost<{ id?: string }>(`/${igUserId}/media`, {
+    image_url: imageUrl,
+    caption,
+    access_token: token,
+  });
+  if (!container.id) throw new Error("Instagram container creation returned no id");
+
+  const published = await graphPost<{ id?: string }>(`/${igUserId}/media_publish`, {
+    creation_id: container.id,
+    access_token: token,
+  });
+  if (!published.id) throw new Error("Instagram publish returned no media id");
+
+  // The post is LIVE from here on — nothing below may throw, or the worker's
+  // retry would create a duplicate. The permalink read-back is cosmetic;
+  // fall back to the media id on any failure.
+  let permalink = `https://www.instagram.com/p/${published.id}`;
+  try {
+    const media = await fetch(
+      `${GRAPH}/${published.id}?${new URLSearchParams({ fields: "permalink", access_token: token })}`,
+      { signal: AbortSignal.timeout(15_000) },
+    ).then((r) => r.json() as Promise<{ permalink?: string }>);
+    if (media.permalink) permalink = media.permalink;
+  } catch {
+    // keep the fallback permalink
+  }
+  return { permalink };
+}
+
+async function graphPost<T>(path: string, params: Record<string, string>): Promise<T> {
+  const res = await fetch(`${GRAPH}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+    signal: AbortSignal.timeout(30_000),
+  });
+  const body = (await res.json().catch(() => ({}))) as T & {
+    error?: { message?: string; code?: number };
+  };
+  if (!res.ok) {
+    const msg = body.error?.message ?? `HTTP ${res.status}`;
+    // IG processes containers asynchronously: "media not ready" (code 9007)
+    // is transient even though it arrives as a 4xx — retry it with backoff.
+    const transient = body.error?.code === 9007 || /not ready/i.test(msg);
+    if (res.status >= 400 && res.status < 500 && !transient) {
+      throw new PermanentError(`Instagram rejected the post: ${msg}`);
+    }
+    throw new Error(`Instagram publish failed: ${msg}`);
+  }
+  return body;
 }
 
 async function publishFacebookPage(pageId: string, pageToken: string, message: string): Promise<PublishResult> {

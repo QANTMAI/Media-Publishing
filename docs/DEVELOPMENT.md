@@ -13,6 +13,9 @@ Copy `.env.example` to `.env`:
 | `META_REDIRECT_URI` | OAuth callback, `<origin>/api/oauth/meta/callback` |
 | `OAUTH_MOCK` | `1` = simulate Meta grants (default until app review clears) |
 | `TRUST_PROXY` | `1` only behind a proxy that sets `X-Forwarded-For` (audit IPs) |
+| `STORAGE_DIR` | Private media directory for the local storage adapter |
+| `STORAGE_SIGNING_KEY` | Signs media URLs — 32 bytes base64 |
+| `PUBLIC_ORIGIN` | Public app origin; required for real Instagram media publishing |
 
 ## Database
 

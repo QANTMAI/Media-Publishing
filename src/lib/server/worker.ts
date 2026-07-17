@@ -15,6 +15,7 @@ import { db } from "./db";
 import { publishTarget, PermanentError } from "./publisher";
 import { killSwitchOn } from "./settings";
 import { audit } from "./audit";
+import { sweepOrphanUploads } from "./sweep";
 
 const POLL_MS = 15_000;
 const MAX_ATTEMPTS = 5;
@@ -147,6 +148,7 @@ export function startWorker() {
     __qantmWorkerBusy?: boolean;
   };
   if (g.__qantmWorker) return;
+  let cycles = 0;
   g.__qantmWorker = setInterval(async () => {
     // Re-entrancy guard: a slow cycle (network-bound publishes) must not
     // overlap the next tick.
@@ -154,6 +156,10 @@ export function startWorker() {
     g.__qantmWorkerBusy = true;
     try {
       await runQueueCycle();
+      // Hourly housekeeping: clear uploads that never completed.
+      if (cycles++ % 240 === 0) {
+        await sweepOrphanUploads().catch((err) => console.error("orphan sweep failed", err));
+      }
     } catch (err) {
       console.error("worker cycle failed", err);
     } finally {

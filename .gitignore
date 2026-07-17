@@ -21,3 +21,6 @@ next-env.d.ts
 .DS_Store
 npm-debug.log*
 *.pem
+
+# Private media storage (local adapter)
+storage/

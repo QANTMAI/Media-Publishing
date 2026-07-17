@@ -51,6 +51,7 @@ export interface PostView {
   permalink: string | null;
   error: string | null;
   autopilot: boolean;
+  assetIds: string[];
   account: {
     id: string;
     platform: PlatformId;
@@ -63,12 +64,6 @@ export interface PostView {
 export type PostType = "image" | "video";
 export type CalView = "month" | "week" | "list";
 export type Lens = "category" | "platform" | "status";
-
-export interface AssetItem {
-  type: "IMAGE" | "VIDEO";
-  name: string;
-  tag: Category;
-}
 
 /** Publishing rules for one platform — editable config, not hard-coded logic. */
 export interface PlatformRules {

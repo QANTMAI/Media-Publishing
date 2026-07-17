@@ -1,0 +1,43 @@
+import { NextResponse } from "next/server";
+import { db } from "@/lib/server/db";
+import { readSession } from "@/lib/server/session";
+import { presignUrl } from "@/lib/server/storage";
+import type { VariantSet } from "@/lib/server/media";
+
+/** GET /api/assets — the operator's library, each with a signed thumbnail URL
+ * (originals stay private; the client never sees raw storage paths it could
+ * fetch unsigned). */
+export async function GET() {
+  const userId = await readSession();
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const assets = await db.asset.findMany({
+    where: { userId },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return NextResponse.json({
+    assets: assets.map((a) => {
+      let variants: VariantSet = {};
+      try {
+        variants = a.variants ? (JSON.parse(a.variants) as VariantSet) : {};
+      } catch {
+        /* tolerate legacy rows */
+      }
+      const previewKey = variants.thumb ?? (a.type === "image" ? a.storageKey : null);
+      return {
+        id: a.id,
+        type: a.type,
+        filename: a.filename,
+        mime: a.mime,
+        width: a.width,
+        height: a.height,
+        tags: a.tags,
+        createdAt: a.createdAt,
+        // 1h signed URLs — refetch the list to refresh.
+        thumbUrl: previewKey ? presignUrl("GET", previewKey, 3600) : null,
+        url: presignUrl("GET", a.storageKey, 3600),
+      };
+    }),
+  });
+}
