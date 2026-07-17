@@ -70,10 +70,15 @@ docs/                   # this documentation
 
 ## Design system
 
-"Modernist": Archivo (400/600/800), blue `#2f54d1` primary with amber
-`#f5a300` secondary, zero corner radius, 2 px rules, flush-left alignment.
-Tokens live in `src/app/globals.css`; the platform/category/status color
-lenses live in `src/lib/platforms.ts`.
+Two layers in `src/app/globals.css`:
+- **Modernist base** — Archivo, blue `#2f54d1` + amber `#f5a300`, zero
+  radius, 2 px rules (the original handoff spec).
+- **"Liquid Glass" skin** (active) — the design prototype's skin layer:
+  Apple-blue `#0a84ff`, SF Pro stack, white cards with 1 px hairlines and
+  12–18 px radii, translucent blurred sidebar/top bar, soft gradient ground,
+  pill tags/toasts. Remove the skin block to fall back to flat Modernist.
+
+The platform/category/status color lenses live in `src/lib/platforms.ts`.
 
 ## Platform app reviews
 

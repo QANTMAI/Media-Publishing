@@ -322,3 +322,134 @@ select.input { appearance: none; cursor: pointer; }
 @media (max-width: 1024px) {
   .composeGrid { grid-template-columns: 1fr; }
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   "Liquid Glass" skin — from the design prototype's skin layer.
+   A self-contained override of the Modernist base above: Apple-blue accent,
+   white/translucent surfaces with backdrop blur, soft gradient ground,
+   rounded controls. Remove this block to fall back to flat Modernist.
+   ════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --font-heading: -apple-system, "SF Pro Display", "Helvetica Neue", system-ui, sans-serif;
+  --font-body: -apple-system, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+
+  --color-accent: #0a84ff;
+  --color-accent-100: #eaf4ff;
+  --color-accent-200: #cfe6ff;
+  --color-accent-300: #93c5ff;
+  --color-accent-400: #5aa9ff;
+  --color-accent-500: #0a84ff;
+  --color-accent-600: #0071e3;
+  --color-accent-700: #0062cc;
+
+  --color-bg: #ffffff;
+  --color-surface: #f5f5f7;
+  --color-text: #1d1d1f;
+  --color-divider: rgba(0, 0, 0, 0.08);
+
+  --color-neutral-100: #f5f5f7;
+  --color-neutral-200: #ececf0;
+  --color-neutral-300: #e2e2e8;
+  --color-neutral-600: #6e6e73;
+  --color-neutral-700: #48484a;
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 20px 48px rgba(0, 0, 0, 0.16);
+}
+
+body {
+  background: linear-gradient(135deg, #e9f1ff 0%, #f4ecfd 45%, #e7fbff 100%);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  letter-spacing: -0.022em;
+  font-weight: 700;
+}
+
+/* Translucent chrome: sidebar + sticky top bar get the glass treatment. */
+aside {
+  background: rgba(255, 255, 255, 0.68) !important;
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  backdrop-filter: blur(30px) saturate(180%);
+  border-right: 1px solid rgba(0, 0, 0, 0.08) !important;
+}
+main { background: transparent !important; }
+main > header {
+  background: rgba(255, 255, 255, 0.62) !important;
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  backdrop-filter: blur(30px) saturate(180%);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.07) !important;
+}
+
+/* Glass panels: bordered containers soften to 1px hairlines, 18px radius,
+   solid white cards. Targets both the shared .stack class and the inline
+   2px-bordered panels (React serializes style attrs without spaces). */
+.stack,
+main div[style*="border:2px solid"],
+main div[style*="border: 2px solid"] {
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  border-radius: 18px;
+  overflow: hidden;
+  background-color: #ffffff;
+}
+.stack { gap: 1px; background: var(--color-divider); }
+main div[style*="border:2px dashed"],
+main div[style*="border: 2px dashed"],
+main button[style*="border:2px dashed"],
+main button[style*="border: 2px dashed"] {
+  border-width: 1.5px !important;
+  border-color: rgba(0, 0, 0, 0.18) !important;
+  border-radius: 16px;
+}
+
+/* Rounded controls */
+.btn {
+  border-radius: 12px;
+  justify-content: center;
+  font-weight: 600;
+  font-family: var(--font-body);
+  letter-spacing: 0;
+}
+.input, select.input, textarea.input {
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  background: rgba(255, 255, 255, 0.9);
+}
+.tag { border-radius: 980px; }
+.chip { border-radius: 10px; border-color: transparent; }
+.chip:hover { background: rgba(0, 0, 0, 0.05); }
+.mark { border-radius: 11px; border-width: 1.5px; }
+
+/* Softer nav: pill hover, and the active bar becomes a tinted pill fill. */
+.navbtn {
+  position: relative;
+  z-index: 0;
+  border-radius: 12px;
+  margin: 1px 10px;
+  width: auto;
+  font-weight: 600;
+  font-family: var(--font-body);
+}
+.navbtn:hover { background: rgba(0, 0, 0, 0.05); }
+.navbtn .active-bar {
+  left: 0; right: 0; top: 0; bottom: 0;
+  width: auto;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  z-index: -1;
+}
+
+/* Segmented controls, dialog, toast */
+.seg { border-radius: 12px; overflow: hidden; border-width: 1px; border-color: rgba(0, 0, 0, 0.14); }
+.dialog { border-radius: 18px; border: 1px solid rgba(0, 0, 0, 0.1); overflow: hidden; }
+.toast { border-radius: 980px; box-shadow: var(--shadow-md); }
+
+.kick { color: var(--color-neutral-600); letter-spacing: 0.06em; }
+
+/* Calendar events keep a soft radius inside the glass panel. */
+.fc .fc-event, .fc .fc-event * { border-radius: 8px !important; }
+.fc .fc-daygrid-event { padding: 2px 5px; }
