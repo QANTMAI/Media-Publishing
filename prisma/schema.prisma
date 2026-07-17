@@ -1,0 +1,148 @@
+// QANTM Media Portal — data model (Build Plan §07).
+// Dev runs on SQLite (zero-setup); production switches provider to
+// "postgresql" + DATABASE_URL. Kept portable: no enums (SQLite), string
+// status fields validated at the app layer.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  totpSecret   String? // set during 2FA enrollment; login requires it confirmed
+  totpEnabled  Boolean  @default(false)
+  totpLastStep BigInt? // last accepted TOTP time-step — blocks code replay
+  createdAt    DateTime @default(now())
+
+  accounts SocialAccount[]
+  posts    Post[]
+  assets   Asset[]
+  audits   AuditEvent[]
+}
+
+// One row per encrypted credential. AES-256-GCM envelope encryption; the
+// master key is env-provided locally and KMS-managed in production.
+// Tokens never leave the server, are never logged, never sent to the client.
+model VaultSecret {
+  id         String   @id @default(cuid())
+  ciphertext String // base64: iv · authTag · ciphertext
+  keyVersion Int      @default(1)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  account SocialAccount?
+}
+
+model SocialAccount {
+  id         String    @id @default(cuid())
+  userId     String
+  platform   String // instagram | facebook | x | linkedin | youtube | tiktok | threads | bluesky | pinterest | gbp
+  externalId String // platform-side id (page id, IG business id, …)
+  name       String // platform display name, e.g. "Instagram"
+  mark       String // short mark, e.g. "IG"
+  handle     String // @handle or page/profile label
+  label      String? // user-set label to tell same-platform accounts apart
+  scopes     String? // granted OAuth scopes, comma-joined
+  status     String    @default("disconnected") // connected | expiring | paused | disconnected
+  expiresAt  DateTime?
+  tokenRef   String?   @unique // -> VaultSecret
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  user    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token   VaultSecret?  @relation(fields: [tokenRef], references: [id])
+  targets PostTarget[]
+
+  @@unique([platform, externalId])
+  @@index([userId, platform])
+}
+
+model Asset {
+  id         String   @id @default(cuid())
+  userId     String
+  type       String // image | video
+  storageKey String // object-storage key; files never live in the DB
+  filename   String
+  mime       String?
+  width      Int?
+  height     Int?
+  variants   String? // JSON: generated crops/transcodes
+  tags       String? // comma-joined
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Post {
+  id          String   @id @default(cuid())
+  userId      String
+  baseCaption String
+  category    String   @default("Promo")
+  status      String   @default("draft") // draft | scheduled | published | failed
+  source      String   @default("manual") // manual | autopilot
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  targets PostTarget[]
+}
+
+model PostTarget {
+  id              String    @id @default(cuid())
+  postId          String
+  socialAccountId String
+  captionOverride String?
+  assetIds        String? // comma-joined Asset ids
+  scheduledAt     DateTime?
+  state           String    @default("draft") // draft | scheduled | publishing | published | failed | cancelled
+  permalink       String?
+  error           String?
+
+  post    Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  account SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  jobs    PublishJob[]
+
+  @@index([state, scheduledAt])
+}
+
+model PublishJob {
+  id           String    @id @default(cuid())
+  postTargetId String
+  runAt        DateTime
+  attempts     Int       @default(0)
+  lastError    String?
+  claimedAt    DateTime? // atomic claim marker — prevents double-publish across workers
+  completedAt  DateTime?
+  createdAt    DateTime  @default(now())
+
+  target PostTarget @relation(fields: [postTargetId], references: [id], onDelete: Cascade)
+
+  @@index([runAt, completedAt])
+}
+
+// Operator-level flags (kill switch, autopilot). Single-row-per-key KV.
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+model AuditEvent {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String // auth.login | auth.login.failed | auth.verify | auth.setup | account.connect | account.disconnect | account.pause | account.resume | publish.* …
+  ip        String?
+  metadata  String? // JSON; never contains secrets
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([createdAt])
+}

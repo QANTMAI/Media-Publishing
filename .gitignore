@@ -1,0 +1,23 @@
+# Dependencies / build
+node_modules/
+.next/
+out/
+build/
+*.tsbuildinfo
+next-env.d.ts
+
+# Local environment & secrets — never committed
+.env*
+!.env.example
+
+# Local databases (SQLite dev)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Local tooling & OS
+.claude/
+.DS_Store
+npm-debug.log*
+*.pem
