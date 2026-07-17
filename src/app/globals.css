@@ -324,9 +324,15 @@ select.input { appearance: none; cursor: pointer; }
 }
 
 /* ════════════════════════════════════════════════════════════════════
-   "Liquid Glass" skin — translucent frosted panels over a vibrant, blurred
-   colour ground. Self-contained override of the Modernist base above.
-   Remove this whole block to fall back to flat Modernist.
+   "Liquid Glass" skin
+   Built to the four-layer model (rogerwong.me/2025/06/breaking-down-apples-
+   liquid-glass): (1) SPECULAR edge highlights that catch light, (2) adaptive
+   depth SHADOW, (3) translucent TINT that lets the colour ground bleed
+   through, (4) blur. The article's core point — real "lensing" (light
+   refraction at the edge) needs SVG feDisplacementMap and isn't reliable in
+   CSS across browsers, so we approximate it with a bright specular rim +
+   inner light ring rather than fake a broken displacement.
+   Self-contained: delete this whole block to revert to flat Modernist.
    ════════════════════════════════════════════════════════════════════ */
 
 :root {
@@ -355,30 +361,40 @@ select.input { appearance: none; cursor: pointer; }
 
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.06);
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 24px 60px rgba(31, 45, 110, 0.24);
+  --shadow-lg: 0 30px 70px rgba(28, 40, 100, 0.28);
 
-  /* the glass recipe, reused everywhere */
-  --glass-fill: rgba(255, 255, 255, 0.55);
-  --glass-fill-strong: rgba(255, 255, 255, 0.7);
-  --glass-border: rgba(255, 255, 255, 0.65);
-  --glass-blur: blur(24px) saturate(185%);
-  --glass-shadow: 0 12px 40px rgba(38, 57, 150, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  /* ── the glass recipe ─────────────────────────────────────────────── */
+  /* tint: translucent white sheen (lighter at the top) over the backdrop */
+  --glass-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.34) 0%, rgba(255, 255, 255, 0.08) 46%, rgba(255, 255, 255, 0.03) 100%);
+  --glass-fill: rgba(255, 255, 255, 0.46);
+  --glass-fill-strong: rgba(255, 255, 255, 0.62);
+  --glass-blur: blur(26px) saturate(190%) brightness(1.04);
+  /* SPECULAR: bright top edge + full-perimeter light ring + soft bottom
+     bounce — the light-catching rim that reads as a glass bevel. */
+  --glass-specular:
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.95),
+    inset 0.5px 0 0.5px rgba(255, 255, 255, 0.5),
+    inset -0.5px 0 0.5px rgba(255, 255, 255, 0.5),
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.4),
+    inset 0 -1px 1px rgba(255, 255, 255, 0.18);
+  /* adaptive DEPTH shadow */
+  --glass-depth: 0 16px 48px rgba(30, 45, 120, 0.16), 0 2px 8px rgba(30, 45, 120, 0.08);
 }
 
 /* Vibrant, fixed colour ground — soft orbs baked into the gradient give the
-   glass something to refract. */
+   glass something to refract/tint. */
 body {
   background:
-    radial-gradient(58rem 58rem at 10% -12%, rgba(10, 132, 255, 0.34), transparent 60%),
-    radial-gradient(48rem 48rem at 108% 8%, rgba(168, 85, 247, 0.30), transparent 56%),
-    radial-gradient(52rem 52rem at 50% 118%, rgba(6, 200, 255, 0.28), transparent 58%),
+    radial-gradient(58rem 58rem at 10% -12%, rgba(10, 132, 255, 0.36), transparent 60%),
+    radial-gradient(48rem 48rem at 108% 8%, rgba(168, 85, 247, 0.32), transparent 56%),
+    radial-gradient(52rem 52rem at 50% 118%, rgba(6, 200, 255, 0.30), transparent 58%),
     linear-gradient(135deg, #e8f0ff 0%, #f1ebfd 46%, #e4fbff 100%);
   background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
 }
 
-/* The app shell + auth roots paint opaque white in the base layer, which
-   hides the ground. Clear them so the colour shows through the glass. */
+/* App-shell + auth roots paint opaque white in the base layer, which hides
+   the ground — clear them so the colour shows through the glass. */
 body > div[style*="min-height:100vh"],
 body > div[style*="min-height: 100vh"] {
   background: transparent !important;
@@ -389,37 +405,40 @@ h1, h2, h3, h4, h5, h6 {
   font-weight: 700;
 }
 
-/* Translucent frosted chrome — sidebar + sticky top bar. */
+/* Translucent frosted chrome — sidebar + sticky top bar, with a specular top
+   edge. */
 aside {
-  background: rgba(255, 255, 255, 0.42) !important;
-  -webkit-backdrop-filter: blur(40px) saturate(200%);
-  backdrop-filter: blur(40px) saturate(200%);
-  border-right: 1px solid rgba(255, 255, 255, 0.55) !important;
+  background: var(--glass-sheen), rgba(255, 255, 255, 0.38) !important;
+  -webkit-backdrop-filter: blur(42px) saturate(200%) brightness(1.03);
+  backdrop-filter: blur(42px) saturate(200%) brightness(1.03);
+  border-right: 1px solid rgba(255, 255, 255, 0.5) !important;
+  box-shadow: inset 0 1px 0.5px rgba(255, 255, 255, 0.9);
 }
 main { background: transparent !important; }
 main > header {
-  background: rgba(255, 255, 255, 0.4) !important;
-  -webkit-backdrop-filter: blur(40px) saturate(200%);
-  backdrop-filter: blur(40px) saturate(200%);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.5) !important;
+  background: var(--glass-sheen), rgba(255, 255, 255, 0.36) !important;
+  -webkit-backdrop-filter: blur(42px) saturate(200%) brightness(1.03);
+  backdrop-filter: blur(42px) saturate(200%) brightness(1.03);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.45) !important;
+  box-shadow: inset 0 1px 0.5px rgba(255, 255, 255, 0.9);
 }
 
-/* Glass panels — the shared .stack and the inline 2px-bordered containers
-   (React serialises the style attr with a space, so match both forms). */
+/* GLASS PANELS — .stack + the inline 2px-bordered containers (React
+   serialises the style attr with a space, so match both forms). */
 .stack,
 main div[style*="border:2px solid"],
 main div[style*="border: 2px solid"] {
-  border: 1px solid var(--glass-border) !important;
-  border-radius: 20px;
+  border: 0.5px solid rgba(255, 255, 255, 0.5) !important;
+  border-radius: 22px;
   overflow: hidden;
-  background: var(--glass-fill) !important;
+  background: var(--glass-sheen), var(--glass-fill) !important;
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
-  box-shadow: var(--glass-shadow);
+  box-shadow: var(--glass-specular), var(--glass-depth);
 }
 /* Rows inside a .stack: faint glass sheets separated by hairline gaps. */
-.stack { gap: 1px; background: rgba(255, 255, 255, 0.26) !important; }
-.stack > * { background: rgba(255, 255, 255, 0.5); }
+.stack { gap: 1px; background: rgba(255, 255, 255, 0.22) !important; }
+.stack > * { background: rgba(255, 255, 255, 0.34); }
 
 /* Dashed dropzones */
 main div[style*="border:2px dashed"],
@@ -428,84 +447,102 @@ main button[style*="border:2px dashed"],
 main button[style*="border: 2px dashed"] {
   border-width: 1.5px !important;
   border-color: rgba(60, 70, 120, 0.22) !important;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.35) !important;
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.28) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  backdrop-filter: blur(14px) saturate(160%);
+  box-shadow: inset 0 1px 0.5px rgba(255, 255, 255, 0.7);
 }
 
-/* Rounded controls */
+/* Rounded controls — buttons/inputs get the specular rim too. */
 .btn {
-  border-radius: 12px;
+  border-radius: 13px;
   justify-content: center;
   font-weight: 600;
   font-family: var(--font-body);
   letter-spacing: 0;
 }
 .btn-secondary {
-  background: rgba(255, 255, 255, 0.55);
-  border-color: var(--glass-border);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
+  background: var(--glass-sheen), rgba(255, 255, 255, 0.5);
+  border: 0.5px solid rgba(255, 255, 255, 0.6);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  backdrop-filter: blur(16px) saturate(180%);
+  box-shadow: var(--glass-specular), 0 4px 14px rgba(30, 45, 120, 0.1);
 }
-.btn-primary { box-shadow: 0 6px 18px rgba(10, 132, 255, 0.35); }
+.btn-primary {
+  box-shadow:
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.55),
+    0 6px 20px rgba(10, 132, 255, 0.4);
+}
 .input, select.input, textarea.input {
   border-radius: 12px;
-  border: 1px solid var(--glass-border);
-  background: rgba(255, 255, 255, 0.55);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
+  border: 0.5px solid rgba(255, 255, 255, 0.6);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.3)), rgba(255, 255, 255, 0.35);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  backdrop-filter: blur(14px) saturate(160%);
+  box-shadow: inset 0 1px 0.5px rgba(255, 255, 255, 0.8);
 }
 .tag { border-radius: 980px; }
-.chip { border-radius: 10px; border-color: transparent; }
-.chip:hover { background: rgba(255, 255, 255, 0.5); }
-.mark { border-radius: 11px; border-width: 1.5px; }
+.chip { border-radius: 11px; border-color: transparent; }
+.chip:hover { background: rgba(255, 255, 255, 0.42); }
+.mark {
+  border-radius: 12px;
+  border: 0.5px solid rgba(255, 255, 255, 0.6);
+  box-shadow: var(--glass-specular);
+}
 
-/* Softer nav: pill hover, active state = tinted pill fill. */
+/* Softer nav: pill hover, active state = tinted glass pill. */
 .navbtn {
   position: relative;
   z-index: 0;
-  border-radius: 12px;
+  border-radius: 13px;
   margin: 1px 10px;
   width: auto;
   font-weight: 600;
   font-family: var(--font-body);
 }
-.navbtn:hover { background: rgba(255, 255, 255, 0.45); }
+.navbtn:hover { background: rgba(255, 255, 255, 0.42); }
 .navbtn .active-bar {
   left: 0; right: 0; top: 0; bottom: 0;
   width: auto;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 22%, transparent);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
+  box-shadow:
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.7),
+    inset 0 0 0 0.5px color-mix(in srgb, var(--color-accent) 30%, transparent);
   z-index: -1;
 }
 
 /* Segmented controls, dialog, toast */
 .seg {
-  border-radius: 12px;
+  border-radius: 13px;
   overflow: hidden;
-  border: 1px solid var(--glass-border);
-  background: rgba(255, 255, 255, 0.5);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
+  border: 0.5px solid rgba(255, 255, 255, 0.6);
+  background: var(--glass-sheen), rgba(255, 255, 255, 0.4);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  backdrop-filter: blur(16px) saturate(180%);
+  box-shadow: var(--glass-specular), 0 4px 14px rgba(30, 45, 120, 0.1);
 }
 .dialog {
-  border-radius: 20px;
-  border: 1px solid var(--glass-border);
+  border-radius: 24px;
+  border: 0.5px solid rgba(255, 255, 255, 0.6);
   overflow: hidden;
-  background: var(--glass-fill-strong) !important;
-  -webkit-backdrop-filter: blur(40px) saturate(200%);
-  backdrop-filter: blur(40px) saturate(200%);
-  box-shadow: var(--shadow-lg);
+  background: var(--glass-sheen), var(--glass-fill-strong) !important;
+  -webkit-backdrop-filter: blur(44px) saturate(200%) brightness(1.05);
+  backdrop-filter: blur(44px) saturate(200%) brightness(1.05);
+  box-shadow: var(--glass-specular), var(--shadow-lg);
 }
-.dialog-backdrop { background: rgba(20, 30, 70, 0.28) !important; -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); }
+.dialog-backdrop {
+  background: rgba(18, 26, 60, 0.3) !important;
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
 .toast {
   border-radius: 980px;
-  background: rgba(29, 29, 31, 0.82) !important;
-  -webkit-backdrop-filter: blur(20px);
-  backdrop-filter: blur(20px);
-  box-shadow: var(--shadow-md);
+  background: rgba(29, 29, 31, 0.78) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  box-shadow: inset 0 1px 0.5px rgba(255, 255, 255, 0.3), var(--shadow-md);
 }
 
 .kick { color: var(--color-neutral-600); letter-spacing: 0.06em; }
