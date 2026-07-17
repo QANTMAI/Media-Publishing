@@ -17,6 +17,15 @@ function secret(): Uint8Array {
   return new TextEncoder().encode(s);
 }
 
+/** Development-only 2FA bypass. HARD-GATED: requires BOTH a non-production
+ * NODE_ENV and an explicit opt-in env var. It can never be true in a
+ * production build, so the mandatory-TOTP security posture is unchanged for
+ * any real deployment. Used only by the isolated /api/auth/dev-login route;
+ * the real login/verify/setup endpoints are untouched. */
+export function devAuthBypass(): boolean {
+  return process.env.NODE_ENV !== "production" && process.env.AUTH_DEV_BYPASS === "1";
+}
+
 async function sign(payload: Record<string, unknown>, ttlSeconds: number) {
   return new SignJWT(payload)
     .setProtectedHeader({ alg: "HS256" })

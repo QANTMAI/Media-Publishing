@@ -324,10 +324,9 @@ select.input { appearance: none; cursor: pointer; }
 }
 
 /* ════════════════════════════════════════════════════════════════════
-   "Liquid Glass" skin — from the design prototype's skin layer.
-   A self-contained override of the Modernist base above: Apple-blue accent,
-   white/translucent surfaces with backdrop blur, soft gradient ground,
-   rounded controls. Remove this block to fall back to flat Modernist.
+   "Liquid Glass" skin — translucent frosted panels over a vibrant, blurred
+   colour ground. Self-contained override of the Modernist base above.
+   Remove this whole block to fall back to flat Modernist.
    ════════════════════════════════════════════════════════════════════ */
 
 :root {
@@ -356,13 +355,33 @@ select.input { appearance: none; cursor: pointer; }
 
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.06);
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 20px 48px rgba(0, 0, 0, 0.16);
+  --shadow-lg: 0 24px 60px rgba(31, 45, 110, 0.24);
+
+  /* the glass recipe, reused everywhere */
+  --glass-fill: rgba(255, 255, 255, 0.55);
+  --glass-fill-strong: rgba(255, 255, 255, 0.7);
+  --glass-border: rgba(255, 255, 255, 0.65);
+  --glass-blur: blur(24px) saturate(185%);
+  --glass-shadow: 0 12px 40px rgba(38, 57, 150, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
+/* Vibrant, fixed colour ground — soft orbs baked into the gradient give the
+   glass something to refract. */
 body {
-  background: linear-gradient(135deg, #e9f1ff 0%, #f4ecfd 45%, #e7fbff 100%);
+  background:
+    radial-gradient(58rem 58rem at 10% -12%, rgba(10, 132, 255, 0.34), transparent 60%),
+    radial-gradient(48rem 48rem at 108% 8%, rgba(168, 85, 247, 0.30), transparent 56%),
+    radial-gradient(52rem 52rem at 50% 118%, rgba(6, 200, 255, 0.28), transparent 58%),
+    linear-gradient(135deg, #e8f0ff 0%, #f1ebfd 46%, #e4fbff 100%);
   background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
+}
+
+/* The app shell + auth roots paint opaque white in the base layer, which
+   hides the ground. Clear them so the colour shows through the glass. */
+body > div[style*="min-height:100vh"],
+body > div[style*="min-height: 100vh"] {
+  background: transparent !important;
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -370,40 +389,49 @@ h1, h2, h3, h4, h5, h6 {
   font-weight: 700;
 }
 
-/* Translucent chrome: sidebar + sticky top bar get the glass treatment. */
+/* Translucent frosted chrome — sidebar + sticky top bar. */
 aside {
-  background: rgba(255, 255, 255, 0.68) !important;
-  -webkit-backdrop-filter: blur(30px) saturate(180%);
-  backdrop-filter: blur(30px) saturate(180%);
-  border-right: 1px solid rgba(0, 0, 0, 0.08) !important;
+  background: rgba(255, 255, 255, 0.42) !important;
+  -webkit-backdrop-filter: blur(40px) saturate(200%);
+  backdrop-filter: blur(40px) saturate(200%);
+  border-right: 1px solid rgba(255, 255, 255, 0.55) !important;
 }
 main { background: transparent !important; }
 main > header {
-  background: rgba(255, 255, 255, 0.62) !important;
-  -webkit-backdrop-filter: blur(30px) saturate(180%);
-  backdrop-filter: blur(30px) saturate(180%);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.07) !important;
+  background: rgba(255, 255, 255, 0.4) !important;
+  -webkit-backdrop-filter: blur(40px) saturate(200%);
+  backdrop-filter: blur(40px) saturate(200%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.5) !important;
 }
 
-/* Glass panels: bordered containers soften to 1px hairlines, 18px radius,
-   solid white cards. Targets both the shared .stack class and the inline
-   2px-bordered panels (React serializes style attrs without spaces). */
+/* Glass panels — the shared .stack and the inline 2px-bordered containers
+   (React serialises the style attr with a space, so match both forms). */
 .stack,
 main div[style*="border:2px solid"],
 main div[style*="border: 2px solid"] {
-  border: 1px solid rgba(0, 0, 0, 0.08) !important;
-  border-radius: 18px;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: 20px;
   overflow: hidden;
-  background-color: #ffffff;
+  background: var(--glass-fill) !important;
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-shadow);
 }
-.stack { gap: 1px; background: var(--color-divider); }
+/* Rows inside a .stack: faint glass sheets separated by hairline gaps. */
+.stack { gap: 1px; background: rgba(255, 255, 255, 0.26) !important; }
+.stack > * { background: rgba(255, 255, 255, 0.5); }
+
+/* Dashed dropzones */
 main div[style*="border:2px dashed"],
 main div[style*="border: 2px dashed"],
 main button[style*="border:2px dashed"],
 main button[style*="border: 2px dashed"] {
   border-width: 1.5px !important;
-  border-color: rgba(0, 0, 0, 0.18) !important;
+  border-color: rgba(60, 70, 120, 0.22) !important;
   border-radius: 16px;
+  background: rgba(255, 255, 255, 0.35) !important;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
 }
 
 /* Rounded controls */
@@ -414,17 +442,26 @@ main button[style*="border: 2px dashed"] {
   font-family: var(--font-body);
   letter-spacing: 0;
 }
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.55);
+  border-color: var(--glass-border);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+.btn-primary { box-shadow: 0 6px 18px rgba(10, 132, 255, 0.35); }
 .input, select.input, textarea.input {
   border-radius: 12px;
-  border: 1px solid rgba(0, 0, 0, 0.14);
-  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.55);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
 }
 .tag { border-radius: 980px; }
 .chip { border-radius: 10px; border-color: transparent; }
-.chip:hover { background: rgba(0, 0, 0, 0.05); }
+.chip:hover { background: rgba(255, 255, 255, 0.5); }
 .mark { border-radius: 11px; border-width: 1.5px; }
 
-/* Softer nav: pill hover, and the active bar becomes a tinted pill fill. */
+/* Softer nav: pill hover, active state = tinted pill fill. */
 .navbtn {
   position: relative;
   z-index: 0;
@@ -434,22 +471,47 @@ main button[style*="border: 2px dashed"] {
   font-weight: 600;
   font-family: var(--font-body);
 }
-.navbtn:hover { background: rgba(0, 0, 0, 0.05); }
+.navbtn:hover { background: rgba(255, 255, 255, 0.45); }
 .navbtn .active-bar {
   left: 0; right: 0; top: 0; bottom: 0;
   width: auto;
   border-radius: 12px;
-  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 22%, transparent);
   z-index: -1;
 }
 
 /* Segmented controls, dialog, toast */
-.seg { border-radius: 12px; overflow: hidden; border-width: 1px; border-color: rgba(0, 0, 0, 0.14); }
-.dialog { border-radius: 18px; border: 1px solid rgba(0, 0, 0, 0.1); overflow: hidden; }
-.toast { border-radius: 980px; box-shadow: var(--shadow-md); }
+.seg {
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.5);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+.dialog {
+  border-radius: 20px;
+  border: 1px solid var(--glass-border);
+  overflow: hidden;
+  background: var(--glass-fill-strong) !important;
+  -webkit-backdrop-filter: blur(40px) saturate(200%);
+  backdrop-filter: blur(40px) saturate(200%);
+  box-shadow: var(--shadow-lg);
+}
+.dialog-backdrop { background: rgba(20, 30, 70, 0.28) !important; -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); }
+.toast {
+  border-radius: 980px;
+  background: rgba(29, 29, 31, 0.82) !important;
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  box-shadow: var(--shadow-md);
+}
 
 .kick { color: var(--color-neutral-600); letter-spacing: 0.06em; }
 
-/* Calendar events keep a soft radius inside the glass panel. */
+/* Calendar sits inside a glass panel — keep its own surface see-through. */
+.fc { --fc-page-bg-color: transparent; }
 .fc .fc-event, .fc .fc-event * { border-radius: 8px !important; }
 .fc .fc-daygrid-event { padding: 2px 5px; }
+.fc-theme-standard td, .fc-theme-standard th { border-color: rgba(60, 70, 120, 0.12) !important; }
