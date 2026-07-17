@@ -76,7 +76,17 @@ Two layers in `src/app/globals.css`:
 - **"Liquid Glass" skin** (active) — the design prototype's skin layer:
   Apple-blue `#0a84ff`, SF Pro stack, white cards with 1 px hairlines and
   12–18 px radii, translucent blurred sidebar/top bar, soft gradient ground,
-  pill tags/toasts. Remove the skin block to fall back to flat Modernist.
+  pill tags/toasts, and specular edge highlights. Remove the skin block
+  to fall back to flat Modernist.
+- **Refraction ("lensing")** — real edge light-bending via an SVG
+  `feDisplacementMap` through `backdrop-filter` (`GlassFilters.tsx`).
+  Progressive enhancement only: enabled via the `glass-lens` class on
+  `<html>` solely in engines verified to render it (Blink) and only when
+  the user hasn't requested reduced transparency/motion. The base glass
+  is always present, so where refraction is unsupported nothing is lost.
+  Applied to the sidebar + panels (static backdrops), deliberately NOT
+  the sticky top bar (content scrolls under it every frame — the one
+  per-frame-recompute case we avoid for scroll performance).
 
 The platform/category/status color lenses live in `src/lib/platforms.ts`.
 

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Archivo } from "next/font/google";
 import "./globals.css";
+import { GlassFilters } from "@/components/GlassFilters";
 
 const archivo = Archivo({
   subsets: ["latin"],
@@ -19,7 +20,10 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={archivo.variable}>
-      <body>{children}</body>
+      <body>
+        <GlassFilters />
+        {children}
+      </body>
     </html>
   );
 }

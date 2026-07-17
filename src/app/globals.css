@@ -552,3 +552,62 @@ main button[style*="border: 2px dashed"] {
 .fc .fc-event, .fc .fc-event * { border-radius: 8px !important; }
 .fc .fc-daygrid-event { padding: 2px 5px; }
 .fc-theme-standard td, .fc-theme-standard th { border-color: rgba(60, 70, 120, 0.12) !important; }
+
+/* ── Refraction layer — real edge "lensing" (see GlassFilters.tsx) ────────
+   Enhancement only: the `glass-lens` class is added to <html> by JS ONLY in
+   engines verified to render SVG-referenced backdrop-filters (Blink) and only
+   when the user hasn't asked for reduced transparency/motion. Blur stays in
+   the declaration (Blink renders blur + displacement together), so there is
+   no fallback path that loses the base glass. */
+/* Sidebar only for chrome: its backdrop (the fixed gradient) never changes
+   while it's pinned, so the displacement computes once — no per-frame cost.
+   The sticky top bar is deliberately left on blur-only: content scrolls
+   under it every frame, and live displacement there is the one expensive
+   case we don't take. It still reads as glass via blur + specular + tint. */
+html.glass-lens aside {
+  -webkit-backdrop-filter: blur(38px) saturate(200%) brightness(1.03) url(#glass-lens);
+  backdrop-filter: blur(38px) saturate(200%) brightness(1.03) url(#glass-lens);
+}
+html.glass-lens .stack,
+html.glass-lens main div[style*="border:2px solid"],
+html.glass-lens main div[style*="border: 2px solid"] {
+  -webkit-backdrop-filter: blur(20px) saturate(185%) brightness(1.04) url(#glass-lens);
+  backdrop-filter: blur(20px) saturate(185%) brightness(1.04) url(#glass-lens);
+}
+
+/* ── Accessibility: reduced transparency → solid, high-contrast surfaces.
+   Clarity and legibility are first-class outcomes; users who ask for less
+   translucency get a calm, opaque UI (and no blur, no refraction). ──────── */
+@media (prefers-reduced-transparency: reduce) {
+  body {
+    background: #eef1f7 !important;
+  }
+  aside,
+  main > header,
+  .stack,
+  main div[style*="border:2px solid"],
+  main div[style*="border: 2px solid"],
+  .btn-secondary,
+  .input, select.input, textarea.input,
+  .seg,
+  .dialog {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  aside,
+  main > header {
+    background: #f5f7fb !important;
+  }
+  .stack,
+  main div[style*="border:2px solid"],
+  main div[style*="border: 2px solid"] {
+    background: #ffffff !important;
+    border-color: rgba(0, 0, 0, 0.12) !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 10px 28px rgba(0, 0, 0, 0.07) !important;
+  }
+  .stack > * { background: #ffffff; }
+  .btn-secondary, .input, select.input, textarea.input, .seg {
+    background: #ffffff !important;
+    border-color: rgba(0, 0, 0, 0.18) !important;
+  }
+}
