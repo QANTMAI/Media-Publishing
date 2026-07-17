@@ -97,13 +97,13 @@ operator, no email infrastructure). Recovery is a documented DB operation on
 the host:
 
 ```bash
-# Reset 2FA enrollment (forces /setup to re-run TOTP for a NEW secret):
+# Reset 2FA enrollment — forces /setup to re-run with a fresh QR. Completing
+# setup REPLACES the operator row, which cascades accounts/posts/assets;
+# demo rows re-seed automatically, but real connections/posts are lost.
 npx prisma db execute --stdin <<< "UPDATE User SET totpEnabled = 0;"
-# Full reset (new operator account; accounts/posts survive):
-npx prisma db execute --stdin <<< "DELETE FROM User;"
 ```
 
-After either, restart the server and complete /setup again. Sessions can be
+After that, restart the server and complete /setup again. Sessions can be
 force-revoked at any time by bumping the epoch:
 `npx prisma db execute --stdin <<< "UPDATE Setting SET value = CAST((CAST(value AS INTEGER)+1) AS TEXT) WHERE key='sessionEpoch';"`
 
