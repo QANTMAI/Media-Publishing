@@ -74,26 +74,99 @@ export async function publishTarget(postTargetId: string): Promise<PublishResult
     case "instagram": {
       const assetId = target.assetIds?.split(",")[0];
       if (!assetId) {
-        throw new PermanentError("Instagram requires media — attach an image to this post");
+        throw new PermanentError("Instagram requires media — attach an image or video to this post");
       }
       const asset = await db.asset.findUnique({ where: { id: assetId } });
       if (!asset) throw new PermanentError("Attached media no longer exists");
-      if (asset.type !== "image") {
-        throw new PermanentError("Instagram video (Reels) publishing lands with the video pipeline (T-302)");
+      if (asset.status === "processing") {
+        // Transcode still running — retryable; backoff will find it ready.
+        throw new Error("Attached video is still transcoding");
       }
-      // Prefer the 4:5 portrait variant; fall back to the original.
-      let mediaKey = asset.storageKey;
+      if (asset.status === "failed") {
+        throw new PermanentError(`Attached video failed processing: ${asset.error ?? "unknown error"}`);
+      }
+      let variants: Record<string, string> = {};
       try {
-        const variants = asset.variants ? (JSON.parse(asset.variants) as { portrait?: string }) : {};
-        if (variants.portrait) mediaKey = variants.portrait;
+        variants = asset.variants ? (JSON.parse(asset.variants) as Record<string, string>) : {};
       } catch {
-        /* use original */
+        /* fall back to original */
       }
-      return publishInstagram(account.externalId, token, caption, mediaKey);
+      if (asset.type === "video") {
+        // Reels flow — the 9:16 rendition, cover frame if we have one.
+        return publishInstagramReel(
+          account.externalId,
+          token,
+          caption,
+          variants.vertical ?? asset.storageKey,
+          asset.coverKey,
+        );
+      }
+      // Image: prefer the 4:5 portrait variant; fall back to the original.
+      return publishInstagram(account.externalId, token, caption, variants.portrait ?? asset.storageKey);
     }
     default:
       throw new PermanentError(`${account.name} publishing is not integrated yet (Waves 1–3)`);
   }
+}
+
+/** Instagram Reels flow (researched from Meta's IG-user/media reference):
+ * container with media_type=REELS + video_url (Meta's servers fetch it —
+ * public, no redirects), optional cover_url; upload is ASYNC, so poll
+ * status_code until FINISHED before media_publish. */
+async function publishInstagramReel(
+  igUserId: string,
+  token: string,
+  caption: string,
+  videoKey: string,
+  coverKey: string | null,
+): Promise<PublishResult> {
+  const params: Record<string, string> = {
+    media_type: "REELS",
+    video_url: publicMediaUrl(videoKey, 3600),
+    caption,
+    access_token: token,
+  };
+  if (coverKey) params.cover_url = publicMediaUrl(coverKey, 3600);
+
+  const container = await graphPost<{ id?: string }>(`/${igUserId}/media`, params);
+  if (!container.id) throw new Error("Reels container creation returned no id");
+
+  // Poll container processing — Meta ingests the video asynchronously.
+  const deadline = Date.now() + 4 * 60_000;
+  for (;;) {
+    const status = await fetch(
+      `${GRAPH}/${container.id}?${new URLSearchParams({ fields: "status_code", access_token: token })}`,
+      { signal: AbortSignal.timeout(30_000) },
+    ).then((r) => r.json() as Promise<{ status_code?: string }>);
+    if (status.status_code === "FINISHED") break;
+    if (status.status_code === "ERROR") {
+      throw new PermanentError("Instagram could not process the Reel video (container ERROR)");
+    }
+    if (Date.now() > deadline) {
+      // Still IN_PROGRESS — retryable; the next attempt creates a fresh container.
+      throw new Error("Reel container still processing after 4 minutes");
+    }
+    await new Promise((r) => setTimeout(r, 5000));
+  }
+
+  const published = await graphPost<{ id?: string }>(`/${igUserId}/media_publish`, {
+    creation_id: container.id,
+    access_token: token,
+  });
+  if (!published.id) throw new Error("Reel publish returned no media id");
+
+  // Post is LIVE — permalink read-back stays best-effort (see publishInstagram).
+  let permalink = `https://www.instagram.com/reel/${published.id}`;
+  try {
+    const media = await fetch(
+      `${GRAPH}/${published.id}?${new URLSearchParams({ fields: "permalink", access_token: token })}`,
+      { signal: AbortSignal.timeout(15_000) },
+    ).then((r) => r.json() as Promise<{ permalink?: string }>);
+    if (media.permalink) permalink = media.permalink;
+  } catch {
+    // keep the fallback permalink
+  }
+  return { permalink };
 }
 
 /** Instagram container flow: create a media container from a hosted image

@@ -44,6 +44,9 @@ export async function POST(req: Request) {
   let width: number | null = null;
   let height: number | null = null;
   let variantsJson: string | null = null;
+  // Images are ready synchronously; videos transcode in the worker (ffmpeg
+  // is CPU-bound and must not run in the request path).
+  const status = kind === "image" ? "ready" : "processing";
 
   if (kind === "image") {
     const data = await getObject(key);
@@ -61,12 +64,11 @@ export async function POST(req: Request) {
       );
     }
   }
-  // Video: stored as-is; transcode/caption variants land with T-302 (ffmpeg).
-
   const asset = await db.asset.create({
     data: {
       userId,
       type: kind,
+      status,
       storageKey: key,
       filename: filename.trim().slice(0, 200),
       mime,
@@ -87,5 +89,8 @@ export async function POST(req: Request) {
     const v = JSON.parse(variantsJson) as { thumb?: string };
     if (v.thumb) thumbUrl = presignUrl("GET", v.thumb, 3600);
   }
-  return NextResponse.json({ id: asset.id, type: kind, filename: asset.filename, thumbUrl }, { status: 201 });
+  return NextResponse.json(
+    { id: asset.id, type: kind, filename: asset.filename, thumbUrl, status },
+    { status: 201 },
+  );
 }

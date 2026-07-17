@@ -4,6 +4,7 @@ import { readSession } from "@/lib/server/session";
 import { zonedTimeToUtc } from "@/lib/server/timezone";
 import { audit, requestIp } from "@/lib/server/audit";
 import { PLATFORM_RULES } from "@/lib/platforms";
+import { validateVideoForPlatform } from "@/lib/server/video-specs";
 
 /** GET /api/posts — every target with its post + account, shaped for the
  * calendar/dashboard. */
@@ -99,9 +100,35 @@ export async function POST(req: Request) {
   // Attached media must exist and belong to the operator.
   const assetIds = body.assetIds ?? [];
   if (assetIds.length) {
-    const owned = await db.asset.count({ where: { id: { in: assetIds }, userId } });
-    if (owned !== assetIds.length) {
+    const attached = await db.asset.findMany({ where: { id: { in: assetIds }, userId } });
+    if (attached.length !== assetIds.length) {
       return NextResponse.json({ error: "Unknown asset in attachment" }, { status: 400 });
+    }
+    // Ready videos are validated against each target platform's researched
+    // spec (video-specs.ts) NOW, not at publish time — the operator should
+    // hear "too long for X" while composing, not from a failed job.
+    // Still-transcoding videos skip this; the publisher re-checks when ready.
+    for (const asset of attached) {
+      if (asset.type !== "video" || asset.status !== "ready" || !asset.durationS || !asset.width) continue;
+      const probe = {
+        durationS: asset.durationS,
+        width: asset.width,
+        height: asset.height ?? 1,
+        fps: 30, // renditions are capped at source/60fps; duration+aspect are the live constraints
+        sizeMB: 0, // renditions are far below every platform cap
+      };
+      for (const a of accounts) {
+        const problems = validateVideoForPlatform(a.platform, probe);
+        if (problems.length) {
+          return NextResponse.json(
+            { error: `${asset.filename}: ${problems[0]}` },
+            { status: 422 },
+          );
+        }
+      }
+    }
+    if (attached.some((a) => a.status === "failed")) {
+      return NextResponse.json({ error: "Attached media failed processing — remove it and retry" }, { status: 422 });
     }
   }
 

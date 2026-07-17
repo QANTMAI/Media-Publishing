@@ -22,6 +22,14 @@ export default function LibraryPage() {
     refresh();
   }, [refresh]);
 
+  // Poll while any video is still transcoding so the tile flips to ready
+  // without a manual reload.
+  useEffect(() => {
+    if (!assets.some((a) => a.status === "processing")) return;
+    const t = setTimeout(refresh, 5000);
+    return () => clearTimeout(t);
+  }, [assets, refresh]);
+
   const onFiles = async (files: FileList | null) => {
     if (!files?.length) return;
     setBusy(true);
@@ -145,8 +153,24 @@ export default function LibraryPage() {
                   >
                     {a.filename}
                   </div>
-                  <span className="tag tag-neutral" style={{ marginTop: 4, fontSize: 10 }}>
-                    {a.type === "image" && a.width ? `${a.width}×${a.height}` : a.type}
+                  <span
+                    className={a.status === "failed" ? "tag tag-outline" : "tag tag-neutral"}
+                    title={a.status === "failed" ? (a.error ?? undefined) : undefined}
+                    style={{
+                      marginTop: 4,
+                      fontSize: 10,
+                      ...(a.status === "failed" ? { color: "var(--color-accent-2-700)" } : {}),
+                    }}
+                  >
+                    {a.status === "processing"
+                      ? "processing…"
+                      : a.status === "failed"
+                        ? "failed"
+                        : a.type === "video" && a.durationS
+                          ? `video · ${Math.round(a.durationS)}s`
+                          : a.width
+                            ? `${a.width}×${a.height}`
+                            : a.type}
                   </span>
                 </div>
                 <button

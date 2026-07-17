@@ -24,14 +24,18 @@ export async function GET() {
       } catch {
         /* tolerate legacy rows */
       }
-      const previewKey = variants.thumb ?? (a.type === "image" ? a.storageKey : null);
+      // Videos get a cover frame once processed; images use their thumb.
+      const previewKey = variants.thumb ?? a.coverKey ?? (a.type === "image" ? a.storageKey : null);
       return {
         id: a.id,
         type: a.type,
+        status: a.status,
         filename: a.filename,
         mime: a.mime,
         width: a.width,
         height: a.height,
+        durationS: a.durationS,
+        error: a.error,
         tags: a.tags,
         createdAt: a.createdAt,
         // 1h signed URLs — refetch the list to refresh.

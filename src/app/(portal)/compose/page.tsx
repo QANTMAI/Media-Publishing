@@ -234,22 +234,22 @@ export default function ComposePage() {
             </div>
             <ul style={{ margin: "0 0 10px", paddingLeft: 18, fontSize: 13, color: "var(--color-neutral-800)" }}>
               <li>
-                <strong>YouTube</strong> — resumable upload as a video; sets title, description &amp; thumbnail.
+                <strong>Renditions</strong> — one upload transcodes to 9:16 (blurred-pad), 1:1, 16:9, and a
+                720×1280 X-fit export, plus a scene-picked cover frame.
               </li>
               <li>
-                <strong>Instagram / TikTok / Threads</strong> — published as a vertical Reel/short (9:16); IG uses a
-                create-then-publish container.
+                <strong>Instagram</strong> — publishes as a Reel (9:16) via Meta&apos;s container flow with the
+                cover frame attached.
               </li>
               <li>
-                <strong>Facebook / LinkedIn / X</strong> — native video attachment.
+                <strong>Platform limits</strong> — checked at scheduling against each network&apos;s current
+                documented spec (duration, aspect, size).
               </li>
             </ul>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-              <span className="tag tag-outline">✓ Auto-captions</span>
-              <span className="tag tag-outline">✓ 9:16 · 1:1 · 16:9 exports</span>
-              <button className="btn btn-secondary" style={{ padding: "4px 10px", fontSize: 12 }}>
-                Pick cover frame
-              </button>
+              <span className="tag tag-outline">✓ 9:16 · 1:1 · 16:9 · X-fit</span>
+              <span className="tag tag-outline">✓ Auto cover frame</span>
+              <span className="tag tag-neutral">Auto-captions: coming with speech-to-text</span>
             </div>
           </div>
         )}

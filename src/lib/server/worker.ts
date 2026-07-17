@@ -16,6 +16,7 @@ import { publishTarget, PermanentError } from "./publisher";
 import { killSwitchOn } from "./settings";
 import { audit } from "./audit";
 import { sweepOrphanUploads } from "./sweep";
+import { processNextVideo } from "./video";
 
 const POLL_MS = 15_000;
 const MAX_ATTEMPTS = 5;
@@ -141,13 +142,35 @@ async function recordFailure(jobId: string, postTargetId: string, attempts: numb
   }
 }
 
-/** Start the polling loop once per process (hot-reload safe). */
+/** Start the polling loops once per process (hot-reload safe).
+ * Two independent loops: publish jobs (fast, network-bound) and media
+ * transcodes (slow, CPU-bound) — a 10-minute ffmpeg run must never delay
+ * a scheduled publish. */
 export function startWorker() {
   const g = globalThis as unknown as {
     __qantmWorker?: ReturnType<typeof setInterval>;
     __qantmWorkerBusy?: boolean;
+    __qantmMedia?: ReturnType<typeof setInterval>;
+    __qantmMediaBusy?: boolean;
   };
   if (g.__qantmWorker) return;
+
+  g.__qantmMedia = setInterval(async () => {
+    if (g.__qantmMediaBusy) return;
+    g.__qantmMediaBusy = true;
+    try {
+      // Drain the pending-video queue one asset at a time (single ffmpeg at
+      // once — it already parallelizes across encoder threads).
+      while (await processNextVideo()) {
+        /* keep going until empty */
+      }
+    } catch (err) {
+      console.error("media worker cycle failed", err);
+    } finally {
+      g.__qantmMediaBusy = false;
+    }
+  }, 10_000);
+  g.__qantmMedia.unref?.();
   let cycles = 0;
   g.__qantmWorker = setInterval(async () => {
     // Re-entrancy guard: a slow cycle (network-bound publishes) must not

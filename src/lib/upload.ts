@@ -9,6 +9,7 @@ export interface UploadedAsset {
   type: "image" | "video";
   filename: string;
   thumbUrl: string | null;
+  status: "ready" | "processing" | "failed";
 }
 
 export async function uploadAsset(file: File, tags?: string): Promise<UploadedAsset> {
@@ -37,10 +38,13 @@ export async function uploadAsset(file: File, tags?: string): Promise<UploadedAs
 export interface AssetListItem {
   id: string;
   type: "image" | "video";
+  status: "ready" | "processing" | "failed";
   filename: string;
   mime: string | null;
   width: number | null;
   height: number | null;
+  durationS: number | null;
+  error: string | null;
   tags: string | null;
   createdAt: string;
   thumbUrl: string | null;

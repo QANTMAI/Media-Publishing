@@ -68,16 +68,23 @@ model Asset {
   id         String   @id @default(cuid())
   userId     String
   type       String // image | video
+  status     String   @default("ready") // ready | processing | failed — videos transcode async in the worker
   storageKey String // object-storage key; files never live in the DB
   filename   String
   mime       String?
   width      Int?
   height     Int?
-  variants   String? // JSON: generated crops/transcodes
-  tags       String? // comma-joined
+  durationS  Float? // video duration
+  coverKey   String? // video cover frame storage key
+  processingStartedAt DateTime? // transcode claim marker — prevents double processing
+  variants   String? // JSON: generated crops/transcodes/renditions
+  error      String? // processing failure reason
   createdAt  DateTime @default(now())
+  tags       String? // comma-joined
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status])
 }
 
 model Post {
