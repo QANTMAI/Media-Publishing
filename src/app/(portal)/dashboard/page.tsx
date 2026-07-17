@@ -1,20 +1,42 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Sparkles } from "lucide-react";
 import { usePortal } from "@/lib/store";
 import { postColor } from "@/lib/platforms";
+import { AnalyticsSection } from "@/components/AnalyticsSection";
 
-/* Every number on this screen derives from real rows in the portal's own
- * database (posts/targets/accounts). Platform-side metrics (reach,
- * engagement) require the analytics API pulls, which are not built — nothing
- * here pretends otherwise. */
+/* Handoff #2 dashboard: KPI row → Autopilot strip → Review inbox + Upcoming →
+ * Analytics section. Every number is real (from the portal's own records) or
+ * an explicit "not connected yet" — platform metrics only appear once real
+ * insight pulls run. */
+
+interface MetricTotals {
+  views: number | null;
+  reach: number | null;
+  likes: number | null;
+  comments: number | null;
+  shares: number | null;
+  saves: number | null;
+}
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { posts, accounts, lens, openDialog } = usePortal();
-  // Snapshot of "now" per mount — render math must stay pure.
+  const { posts, accounts, lens, openDialog, autopilot, toggleAutopilot } = usePortal();
   const [now] = useState(() => Date.now());
+  const [totals, setTotals] = useState<MetricTotals | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/metrics").then(async (res) => {
+      if (cancelled || !res.ok) return;
+      setTotals((await res.json()).totals ?? null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // This week = Sunday through Saturday around today.
   const weekStart = new Date(now);
@@ -28,76 +50,93 @@ export default function DashboardPage() {
     return t >= weekStart && t < weekEnd;
   };
 
-  const goalTotal = 7; // default weekly target — a preference, not a measurement
+  const goalTotal = 7;
   const goalDone = posts.filter(
     (p) => inWeek(p.scheduledAt) && (p.status === "published" || p.status === "scheduled" || p.status === "publishing"),
   ).length;
   const goalPct = Math.min(100, Math.round((goalDone / goalTotal) * 100));
 
-  const publishedLast7 = posts.filter(
-    (p) => p.status === "published" && p.scheduledAt && new Date(p.scheduledAt).getTime() > now - 7 * 24 * 60 * 60_000,
-  ).length;
-  const scheduledAhead = posts.filter(
-    (p) => p.status === "scheduled" && p.scheduledAt && new Date(p.scheduledAt).getTime() > now,
-  ).length;
-  const connectedAccounts = accounts.filter((a) => a.status === "connected").length;
-
   const failed = posts.filter((p) => p.status === "failed");
   const upcoming = [...posts]
     .filter((p) => p.status === "scheduled" && p.scheduledAt && new Date(p.scheduledAt).getTime() > now)
     .sort((a, b) => a.scheduledAt!.localeCompare(b.scheduledAt!))
-    .slice(0, 4);
+    .slice(0, 5);
+
+  // Autopilot review drafts land here (Phase B wires the real queue). For now
+  // the empty state explains the drafts → review → approve flow honestly.
+  const reviewDrafts = posts.filter((p) => p.autopilot && p.status === "draft");
+
+  const metric = (v: number | null | undefined) => (v == null ? "—" : v.toLocaleString());
 
   return (
     <div>
-      {/* Goal + real queue numbers */}
+      {/* ── KPI row ── */}
       <div
         className="stack stack-strong"
-        style={{ display: "grid", gridTemplateColumns: "1.1fr 1fr", marginBottom: 20 }}
+        style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", marginBottom: 20 }}
       >
-        <div style={{ padding: "22px 24px" }}>
-          <p className="kick">Weekly target (default {goalTotal})</p>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-            <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 44, lineHeight: 1 }}>
-              {goalDone}
-            </span>
-            <span style={{ fontSize: 16, color: "var(--color-neutral-600)" }}>/ {goalTotal} posts this week</span>
+        <div style={{ padding: "18px 20px" }}>
+          <p className="kick" style={{ margin: "0 0 6px" }}>
+            This week&apos;s goal
+          </p>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+            <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 30 }}>{goalDone}</span>
+            <span style={{ fontSize: 14, color: "var(--color-neutral-600)" }}>/ {goalTotal} posts</span>
           </div>
-          <div
-            style={{
-              height: 12,
-              border: "2px solid var(--color-text)",
-              marginTop: 14,
-              background: "var(--color-bg)",
-            }}
-          >
+          <div style={{ height: 10, border: "2px solid var(--color-text)", marginTop: 10, background: "var(--color-bg)" }}>
             <div style={{ height: "100%", background: "var(--color-accent-2)", width: `${goalPct}%` }} />
           </div>
-          <p style={{ margin: "10px 0 0", fontSize: 13, color: "var(--color-neutral-700)" }}>
-            Counts scheduled + published posts in this calendar week; failures don&apos;t count.
-          </p>
         </div>
-        <div style={{ padding: "22px 24px" }}>
-          <p className="kick">Your queue · real counts</p>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginTop: 6 }}>
-            {[
-              { v: String(publishedLast7), n: "Published · last 7 days" },
-              { v: String(scheduledAhead), n: "Scheduled ahead" },
-              { v: String(connectedAccounts), n: "Connected accounts" },
-            ].map((m) => (
-              <div key={m.n}>
-                <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 28 }}>{m.v}</div>
-                <div style={{ fontSize: 12, color: "var(--color-neutral-600)" }}>{m.n}</div>
-              </div>
-            ))}
+        {[
+          { label: "Reach · 7d", value: metric(totals?.reach) },
+          { label: "Engagement", value: metric(totals?.likes != null ? (totals.likes + (totals.comments ?? 0) + (totals.shares ?? 0)) : null) },
+          { label: "New followers", value: "—" },
+        ].map((m) => (
+          <div key={m.label} style={{ padding: "18px 20px" }}>
+            <p className="kick" style={{ margin: "0 0 6px" }}>
+              {m.label}
+            </p>
+            <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 30 }}>{m.value}</div>
+            <div style={{ fontSize: 12, color: "var(--color-neutral-600)" }}>
+              {m.value === "—" ? "connect analytics" : "from platform insights"}
+            </div>
           </div>
-          <p style={{ margin: "12px 0 0", fontSize: 12, color: "var(--color-neutral-600)" }}>
-            Reach/engagement metrics arrive with the platform analytics pulls.
-          </p>
-        </div>
+        ))}
       </div>
 
-      {/* Failed posts — surfaced here so a broken publish is never silent */}
+      {/* ── Autopilot status strip ── */}
+      <div
+        className="stack stack-strong"
+        style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 14, padding: "14px 18px", marginBottom: 20 }}
+      >
+        <span
+          className="dot"
+          style={{ width: 12, height: 12, background: autopilot ? "var(--color-accent-2)" : "var(--color-neutral-400)" }}
+        />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 15 }}>
+            Autopilot is {autopilot ? "on" : "off"}
+          </div>
+          <div style={{ fontSize: 13, color: "var(--color-neutral-700)" }}>
+            {autopilot
+              ? "AI is planning posts. Drafts wait in your review inbox below. Mode & sources live in Settings."
+              : "Turn it on to have AI draft a week of posts for your review. Configure it in Settings."}
+          </div>
+        </div>
+        <button
+          className="btn"
+          onClick={() => toggleAutopilot()}
+          style={
+            autopilot
+              ? { background: "var(--color-accent-2)", border: "2px solid var(--color-accent-2)", color: "#201e1d" }
+              : { background: "transparent", border: "2px solid var(--color-text)", color: "var(--color-text)" }
+          }
+        >
+          <Sparkles size={14} /> Autopilot: {autopilot ? "On" : "Off"}
+        </button>
+      </div>
+
+      {/* ── Failed posts — surfaced so a broken publish is never silent ── */}
       {failed.length > 0 && (
         <div style={{ marginBottom: 20 }}>
           <p className="kick" style={{ color: "var(--color-accent-2-700)" }}>
@@ -108,16 +147,7 @@ export default function DashboardPage() {
               <button key={p.id} className="chip" onClick={() => openDialog(p.id)}>
                 <span className="dot" style={{ width: 10, height: 10, background: "#ec3013" }} />
                 <span style={{ flex: 1, minWidth: 0 }}>
-                  <span
-                    style={{
-                      fontWeight: 600,
-                      fontSize: 13,
-                      display: "block",
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
+                  <span style={{ fontWeight: 600, fontSize: 13, display: "block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                     {p.caption}
                   </span>
                   <span style={{ fontSize: 11, color: "var(--color-accent-2-700)" }}>
@@ -130,57 +160,47 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 24 }}>
+      {/* ── Review inbox + Upcoming ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 24, marginBottom: 24 }}>
         <div>
           <p className="kick" style={{ color: "var(--color-accent)" }}>
-            Ideas
+            Needs your review
           </p>
-          <div className="stack">
-            {[
-              {
-                title: "Fill an empty day",
-                body: "Compose something for a gap in this week's calendar.",
-                cta: "Compose",
-                on: () => router.push("/compose"),
-              },
-              {
-                title: "Check the queue",
-                body: "Review what's scheduled before it goes out.",
-                cta: "Calendar",
-                on: () => router.push("/calendar"),
-              },
-              {
-                title: "Connect more accounts",
-                body: `${connectedAccounts} connected — each one widens your reach.`,
-                cta: "Accounts",
-                on: () => router.push("/accounts"),
-              },
-            ].map((s) => (
-              <div
-                key={s.title}
-                style={{
-                  padding: "16px 18px",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  gap: 16,
-                }}
+          {reviewDrafts.length === 0 ? (
+            <div
+              style={{
+                border: "2px solid var(--color-divider)",
+                background: "var(--color-bg)",
+                padding: "20px",
+                fontSize: 13,
+                color: "var(--color-neutral-700)",
+              }}
+            >
+              Nothing to review. When Autopilot is on (review mode), the posts it drafts land here — you approve,
+              edit, or discard each before anything is scheduled. Set the mode and trend sources in{" "}
+              <button
+                onClick={() => router.push("/settings")}
+                style={{ border: 0, background: "none", padding: 0, color: "var(--color-accent-700)", cursor: "pointer", font: "inherit", textDecoration: "underline" }}
               >
-                <div>
-                  <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 15, marginBottom: 2 }}>
-                    {s.title}
+                Settings
+              </button>
+              .
+            </div>
+          ) : (
+            <div className="stack">
+              {reviewDrafts.map((p) => (
+                <div key={p.id} style={{ padding: "14px 18px", display: "flex", alignItems: "center", gap: 12 }}>
+                  <span className="dot" style={{ width: 10, height: 10, background: postColor(p, lens) }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {p.caption}
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--color-neutral-600)" }}>{p.account.name}</div>
                   </div>
-                  <div style={{ fontSize: 13, color: "var(--color-neutral-700)" }}>{s.body}</div>
                 </div>
-                <button className="btn btn-secondary" onClick={s.on} style={{ flex: "none" }}>
-                  {s.cta}
-                </button>
-              </div>
-            ))}
-          </div>
-          <p style={{ fontSize: 12, color: "var(--color-neutral-600)", marginTop: 8 }}>
-            Performance-based recommendations arrive with the optimizer (needs analytics data).
-          </p>
+              ))}
+            </div>
+          )}
         </div>
         <div>
           <p className="kick">Upcoming</p>
@@ -194,16 +214,7 @@ export default function DashboardPage() {
               <button key={p.id} className="chip" onClick={() => openDialog(p.id)}>
                 <span className="dot" style={{ width: 10, height: 10, background: postColor(p, lens) }} />
                 <span style={{ flex: 1, minWidth: 0 }}>
-                  <span
-                    style={{
-                      fontWeight: 600,
-                      fontSize: 13,
-                      display: "block",
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
+                  <span style={{ fontWeight: 600, fontSize: 13, display: "block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                     {p.caption}
                   </span>
                   <span style={{ fontSize: 11, color: "var(--color-neutral-600)" }}>
@@ -218,6 +229,12 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Analytics (moved in from its old tab) ── */}
+      <p className="kick" style={{ fontSize: 13, marginBottom: 12 }}>
+        Analytics
+      </p>
+      <AnalyticsSection />
     </div>
   );
 }

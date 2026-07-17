@@ -62,8 +62,10 @@ export async function POST(req: Request) {
     date?: string;
     time?: string;
     tz?: string;
+    draft?: boolean;
   } | null;
   if (!body) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  const isDraft = body.draft === true;
 
   const baseCaption = body.baseCaption?.trim() ?? "";
   if (!baseCaption) return NextResponse.json({ error: "Caption is required" }, { status: 400 });
@@ -77,7 +79,8 @@ export async function POST(req: Request) {
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Invalid schedule" }, { status: 400 });
   }
-  if (scheduledAt.getTime() < Date.now() - 60_000) {
+  // Drafts can carry any intended time (including past) — nothing publishes.
+  if (!isDraft && scheduledAt.getTime() < Date.now() - 60_000) {
     return NextResponse.json({ error: "Scheduled time is in the past" }, { status: 400 });
   }
 
@@ -155,23 +158,26 @@ export async function POST(req: Request) {
       userId,
       baseCaption,
       category: body.category ?? "Promo",
-      status: "scheduled",
+      status: isDraft ? "draft" : "scheduled",
       targets: {
         create: accounts.map((a) => ({
           socialAccountId: a.id,
           scheduledAt,
-          state: "scheduled",
+          state: isDraft ? "draft" : "scheduled",
           assetIds: assetIds.length ? assetIds.join(",") : null,
         })),
       },
     },
     include: { targets: true },
   });
-  await db.publishJob.createMany({
-    data: post.targets.map((t) => ({ postTargetId: t.id, runAt: scheduledAt })),
-  });
+  // Drafts get NO publish job — nothing is queued until they're scheduled.
+  if (!isDraft) {
+    await db.publishJob.createMany({
+      data: post.targets.map((t) => ({ postTargetId: t.id, runAt: scheduledAt })),
+    });
+  }
 
-  await audit("post.schedule", {
+  await audit(isDraft ? "post.draft" : "post.schedule", {
     userId,
     ip: requestIp(req),
     metadata: { postId: post.id, targets: post.targets.length, scheduledAt: scheduledAt.toISOString() },

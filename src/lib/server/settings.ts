@@ -19,3 +19,8 @@ export async function killSwitchOn(): Promise<boolean> {
 export async function autopilotOn(): Promise<boolean> {
   return (await getSetting("autopilot")) === "on";
 }
+
+/** Autopilot delivery mode: hold drafts for review, or auto-schedule them. */
+export async function autopilotMode(): Promise<"review" | "auto"> {
+  return (await getSetting("autopilotMode")) === "auto" ? "auto" : "review";
+}

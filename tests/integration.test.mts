@@ -156,6 +156,63 @@ test("schedule validation: past time, empty caption, over-limit caption", async 
   assert.equal(overX.status, 422, "over-280 caption to X must be rejected server-side");
 });
 
+test("Save draft creates draft targets with NO publish job (handoff #2)", async () => {
+  const ig = await db.socialAccount.findFirst({ where: { platform: "instagram", status: "connected" } });
+  // Drafts accept a past time and never queue.
+  const res = await api("/api/posts", {
+    method: "POST",
+    body: JSON.stringify({
+      baseCaption: "a saved draft",
+      accountIds: [ig!.id],
+      date: "2020-01-01",
+      time: "10:00",
+      tz: "UTC",
+      draft: true,
+    }),
+  });
+  assert.equal(res.status, 201, "draft with a past time is allowed");
+  const { postId } = await res.json();
+  const post = await db.post.findUnique({ where: { id: postId }, include: { targets: { include: { jobs: true } } } });
+  assert.equal(post!.status, "draft");
+  assert.equal(post!.targets[0].state, "draft");
+  assert.equal(post!.targets[0].jobs.length, 0, "drafts get no publish job");
+  await db.post.delete({ where: { id: postId } });
+});
+
+test("reassign a post's category (calendar dialog)", async () => {
+  const ig = await db.socialAccount.findFirst({ where: { platform: "instagram", status: "connected" } });
+  const res = await api("/api/posts", {
+    method: "POST",
+    body: JSON.stringify({
+      baseCaption: "recategorize me",
+      category: "Promo",
+      accountIds: [ig!.id],
+      date: "2030-01-01",
+      time: "10:00",
+      tz: "UTC",
+    }),
+  });
+  const { postId } = await res.json();
+  const patch = await api(`/api/posts/${postId}`, { method: "PATCH", body: JSON.stringify({ category: "News" }) });
+  assert.equal(patch.status, 200);
+  const post = await db.post.findUnique({ where: { id: postId } });
+  assert.equal(post!.category, "News");
+  // Empty category rejected.
+  const bad = await api(`/api/posts/${postId}`, { method: "PATCH", body: JSON.stringify({ category: "  " }) });
+  assert.equal(bad.status, 400);
+  await db.post.delete({ where: { id: postId } });
+});
+
+test("autopilot mode persists via /api/settings", async () => {
+  const set = await api("/api/settings", { method: "PUT", body: JSON.stringify({ autopilotMode: "auto" }) });
+  assert.equal(set.status, 200);
+  assert.equal((await set.json()).autopilotMode, "auto");
+  const got = await (await api("/api/settings")).json();
+  assert.equal(got.autopilotMode, "auto");
+  // restore default
+  await api("/api/settings", { method: "PUT", body: JSON.stringify({ autopilotMode: "review" }) });
+});
+
 test("schedule → queue → worker publishes via mock token; no-token target fails permanently", async () => {
   const ig = await db.socialAccount.findFirst({
     where: { platform: "instagram", status: "connected", tokenRef: { not: null } },
@@ -548,6 +605,9 @@ test("metrics: mock publishes get NO snapshots; /api/metrics serves only real ro
 });
 
 test("autopilot plans real scheduled posts and cleans up on off", async () => {
+  // Ensure a clean OFF baseline — autopilot ON is idempotent, so a lingering
+  // ON from prior use would return planned:0.
+  await api("/api/autopilot", { method: "POST", body: JSON.stringify({ on: false }) });
   const on = await api("/api/autopilot", { method: "POST", body: JSON.stringify({ on: true }) });
   assert.equal(on.status, 200);
   const { planned } = await on.json();

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { usePortal } from "@/lib/store";
-import { postColor } from "@/lib/platforms";
+import { CATEGORIES, postColor } from "@/lib/platforms";
 
 function formatWhen(iso: string | null): string {
   if (!iso) return "draft";
@@ -11,7 +11,7 @@ function formatWhen(iso: string | null): string {
 }
 
 export function PostDialog() {
-  const { posts, dialogId, lens, closeDialog, cancelTarget } = usePortal();
+  const { posts, dialogId, lens, closeDialog, cancelTarget, setPostCategory } = usePortal();
   const post = dialogId != null ? posts.find((p) => p.id === dialogId) : null;
   const closeRef = useRef<HTMLButtonElement>(null);
 
@@ -57,11 +57,28 @@ export function PostDialog() {
         </div>
         <div style={{ padding: 20 }}>
           <p style={{ margin: "0 0 12px" }}>{post.caption}</p>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <span className="tag tag-outline">{post.category}</span>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             <span className="tag tag-neutral">{post.status}</span>
             <span className="tag tag-outline">{post.account.handle}</span>
             {post.demo && <span className="tag tag-outline">demo data</span>}
+          </div>
+          {/* Reassign category — recolors the event live on the calendar. */}
+          <div className="field" style={{ marginTop: 14 }}>
+            <label htmlFor="post-category">Category</label>
+            <select
+              id="post-category"
+              className="input"
+              value={CATEGORIES.includes(post.category) ? post.category : ""}
+              onChange={(e) => setPostCategory(post.postId, e.target.value)}
+              style={{ maxWidth: 240 }}
+            >
+              {!CATEGORIES.includes(post.category) && <option value="">{post.category}</option>}
+              {CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
           </div>
           {post.status === "published" && post.permalink && (
             <p style={{ fontSize: 13, margin: "12px 0 0" }}>

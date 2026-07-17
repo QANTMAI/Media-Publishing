@@ -9,13 +9,15 @@ import { usePortal, useStoreHydration } from "@/lib/store";
 import { Toast } from "@/components/Toast";
 import { PostDialog } from "@/components/PostDialog";
 
+// Handoff #2: Analytics is no longer a nav item — it lives as a Dashboard
+// section. Settings is new.
 const NAV = [
   { href: "/dashboard", label: "Dashboard", title: "Dashboard" },
   { href: "/compose", label: "Compose", title: "Compose a post" },
   { href: "/calendar", label: "Calendar", title: "Content calendar" },
   { href: "/library", label: "Library", title: "Media library" },
-  { href: "/analytics", label: "Analytics", title: "Analytics" },
   { href: "/accounts", label: "Accounts", title: "Connected accounts" },
+  { href: "/settings", label: "Settings", title: "Settings" },
 ];
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {

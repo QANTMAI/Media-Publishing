@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
-import { Heart, MessageCircle, Share, Sparkles, X as XIcon } from "lucide-react";
+import { Check, ChevronDown, Heart, MessageCircle, Share, Sparkles, X as XIcon } from "lucide-react";
 import { usePortal, selectableAccounts } from "@/lib/store";
 import { uploadAsset, type UploadedAsset } from "@/lib/upload";
 import {
@@ -23,6 +23,8 @@ export default function ComposePage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [attached, setAttached] = useState<UploadedAsset | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [acctMenu, setAcctMenu] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const attachFile = async (file: File | undefined) => {
     if (!file) return;
@@ -67,7 +69,7 @@ export default function ComposePage() {
     items: s.accounts.filter((a) => MARK_TO_PLATFORM[a.mark] === pid && a.status !== "disconnected"),
   })).filter((g) => g.items.length > 0);
 
-  const onSchedule = async () => {
+  const submit = async (mode: "schedule" | "draft") => {
     if (!s.caption.trim()) {
       s.notify("Write a caption first");
       return;
@@ -76,6 +78,7 @@ export default function ComposePage() {
       s.notify("Select at least one account");
       return;
     }
+    if (mode === "draft") setSaving(true);
     const res = await fetch("/api/posts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -87,17 +90,23 @@ export default function ComposePage() {
         date: s.date,
         time: s.time,
         tz: s.tz,
+        draft: mode === "draft",
       }),
     });
+    if (mode === "draft") setSaving(false);
     if (res.ok) {
       const d = await res.json();
       s.setComposer({ caption: "" });
       setAttached(null);
       await s.refreshPosts();
-      s.notify(`Scheduled ${d.targetCount} post${d.targetCount > 1 ? "s" : ""} · ${s.time} ${s.tz.split(" ")[0]}`);
-      router.push("/calendar");
+      if (mode === "draft") {
+        s.notify(`Saved ${d.targetCount} draft${d.targetCount > 1 ? "s" : ""} — nothing published`);
+      } else {
+        s.notify(`Scheduled ${d.targetCount} post${d.targetCount > 1 ? "s" : ""} · ${s.time} ${s.tz.split(" ")[0]}`);
+        router.push("/calendar");
+      }
     } else {
-      s.notify((await res.json()).error ?? "Scheduling failed");
+      s.notify((await res.json()).error ?? (mode === "draft" ? "Save failed" : "Scheduling failed"));
     }
   };
 
@@ -256,7 +265,7 @@ export default function ComposePage() {
           </div>
         )}
 
-        {/* ── Publish to (per-account picker) ── */}
+        {/* ── Publish to — account-picker dropdown (handoff #2) ── */}
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8 }}>
           <p className="kick" style={{ margin: 0 }}>
             Publish to
@@ -265,62 +274,133 @@ export default function ComposePage() {
             {selAccts.length} selected
           </span>
         </div>
-        <div style={{ border: "2px solid var(--color-divider)", marginBottom: 20 }}>
-          {accountGroups.length === 0 && (
-            <div style={{ padding: "14px 16px", fontSize: 13, color: "var(--color-neutral-600)" }}>
-              No connectable accounts — connect one on the Accounts page first.
-            </div>
-          )}
-          {accountGroups.map((g) => (
-            <div
-              key={g.rules.id}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 14,
-                padding: "10px 14px",
-                borderTop: "1px solid var(--color-divider)",
-              }}
-            >
-              <div style={{ width: 88, flex: "none", display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ width: 8, height: 8, background: PLATFORM_COLORS[g.rules.mark] }} />
-                <span
-                  style={{
-                    fontSize: 11,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.05em",
-                    color: "var(--color-neutral-700)",
-                    fontWeight: 600,
-                  }}
-                >
-                  {g.rules.name}
-                </span>
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, flex: 1 }}>
-                {g.items.map((a) => {
-                  const on = selAccts.includes(a.id);
-                  return (
-                    <button
-                      key={a.id}
-                      onClick={() => s.toggleAccount(a.id)}
+        <div style={{ position: "relative", marginBottom: 12 }}>
+          <button
+            className="btn btn-secondary"
+            onClick={() => setAcctMenu((v) => !v)}
+            disabled={accountGroups.length === 0}
+            style={{ width: "100%", justifyContent: "space-between" }}
+          >
+            <span>{accountGroups.length === 0 ? "No connectable accounts — connect on Accounts" : "Add accounts"}</span>
+            <ChevronDown size={15} />
+          </button>
+          {acctMenu && accountGroups.length > 0 && (
+            <>
+              {/* click-away catcher */}
+              <div style={{ position: "fixed", inset: 0, zIndex: 20 }} onClick={() => setAcctMenu(false)} />
+              <div
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 6px)",
+                  left: 0,
+                  right: 0,
+                  zIndex: 21,
+                  maxHeight: 320,
+                  overflowY: "auto",
+                  border: "2px solid var(--color-divider)",
+                  background: "var(--color-bg)",
+                  boxShadow: "var(--shadow-lg)",
+                }}
+              >
+                {accountGroups.map((g) => (
+                  <div key={g.rules.id}>
+                    <div
                       style={{
-                        padding: "8px 12px",
-                        cursor: "pointer",
-                        fontFamily: "var(--font-heading)",
-                        fontWeight: 800,
-                        fontSize: 12,
-                        border: "2px solid var(--color-text)",
-                        background: on ? "var(--color-text)" : "var(--color-bg)",
-                        color: on ? "var(--color-bg)" : "var(--color-text)",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        padding: "8px 14px",
+                        fontSize: 11,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.05em",
+                        color: "var(--color-neutral-700)",
+                        fontWeight: 600,
+                        borderBottom: "1px solid var(--color-divider)",
                       }}
                     >
-                      {a.handle}
-                    </button>
-                  );
-                })}
+                      <span style={{ width: 8, height: 8, background: PLATFORM_COLORS[g.rules.mark] }} />
+                      {g.rules.name}
+                    </div>
+                    {g.items.map((a) => {
+                      const on = selAccts.includes(a.id);
+                      return (
+                        <button
+                          key={a.id}
+                          onClick={() => {
+                            s.toggleAccount(a.id);
+                            setAcctMenu(false);
+                          }}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 10,
+                            width: "100%",
+                            padding: "10px 14px",
+                            border: 0,
+                            borderBottom: "1px solid var(--color-divider)",
+                            background: on ? "var(--color-accent-100)" : "transparent",
+                            cursor: "pointer",
+                            font: "inherit",
+                            textAlign: "left",
+                          }}
+                        >
+                          <span
+                            style={{
+                              width: 16,
+                              height: 16,
+                              flex: "none",
+                              border: `1px solid ${on ? "var(--color-accent)" : "var(--color-neutral-400)"}`,
+                              background: on ? "var(--color-accent)" : "transparent",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              color: "#fff",
+                            }}
+                          >
+                            {on && <Check size={12} />}
+                          </span>
+                          <span style={{ fontSize: 13, fontWeight: 600 }}>{a.handle}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
-            </div>
-          ))}
+            </>
+          )}
+        </div>
+        {/* selected accounts as removable chips */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 20, minHeight: 4 }}>
+          {selAccts.map((id) => {
+            const a = s.accounts.find((x) => x.id === id);
+            if (!a) return null;
+            return (
+              <span
+                key={id}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "5px 6px 5px 10px",
+                  borderRadius: 980,
+                  border: "1px solid var(--color-accent-300)",
+                  background: "var(--color-accent-100)",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: "var(--color-accent-700)",
+                }}
+              >
+                {a.handle}
+                <button
+                  onClick={() => s.toggleAccount(id)}
+                  aria-label={`Remove ${a.handle}`}
+                  style={{ border: 0, background: "none", padding: 0, display: "flex", cursor: "pointer", color: "var(--color-accent-700)" }}
+                >
+                  <XIcon size={13} />
+                </button>
+              </span>
+            );
+          })}
         </div>
 
         {/* ── Base caption ── */}
@@ -524,7 +604,15 @@ export default function ComposePage() {
                 ))}
               </select>
             </div>
-            <button className="btn btn-primary" onClick={onSchedule} style={{ height: 42, whiteSpace: "nowrap" }}>
+            <button
+              className="btn btn-secondary"
+              onClick={() => submit("draft")}
+              disabled={saving}
+              style={{ height: 42, whiteSpace: "nowrap" }}
+            >
+              {saving ? "Saving…" : "Save draft"}
+            </button>
+            <button className="btn btn-primary" onClick={() => submit("schedule")} style={{ height: 42, whiteSpace: "nowrap" }}>
               Schedule post
             </button>
           </div>

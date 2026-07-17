@@ -54,6 +54,7 @@ interface PortalState {
   toggleAutopilot: () => Promise<boolean>;
   cancelTarget: (id: string) => Promise<boolean>;
   rescheduleTarget: (id: string, scheduledAtIso: string) => Promise<boolean>;
+  setPostCategory: (postId: string, category: string) => Promise<void>;
   setCalView: (v: CalView) => void;
   setLens: (l: Lens) => void;
   openDialog: (id: string) => void;
@@ -230,6 +231,20 @@ export const usePortal = create<PortalState>()(
         }
         await get().refreshPosts(); // snap the calendar back
         return false;
+      },
+
+      setPostCategory: async (postId, category) => {
+        const res = await apiFetch(`/api/posts/${postId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ category }),
+        });
+        if (res?.ok) {
+          await get().refreshPosts();
+          get().notify(`Category set to ${category}`);
+        } else if (res) {
+          get().notify("Could not update category");
+        }
       },
 
       setCalView: (v) => set({ calView: v }),
