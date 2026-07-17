@@ -110,13 +110,35 @@ model PostTarget {
   scheduledAt     DateTime?
   state           String    @default("draft") // draft | scheduled | publishing | published | failed | cancelled
   permalink       String?
+  externalMediaId String? // platform-side media/post id — required for insights pulls; "mock_…" for mock publishes
   error           String?
 
-  post    Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
-  account SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  post    Post             @relation(fields: [postId], references: [id], onDelete: Cascade)
+  account SocialAccount    @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
   jobs    PublishJob[]
+  metrics MetricSnapshot[]
 
   @@index([state, scheduledAt])
+}
+
+// One insights pull for one published target — a time series, so growth is
+// computable and a bad pull never destroys history. Only ever written from
+// REAL platform API responses; mock publishes get no rows.
+model MetricSnapshot {
+  id           String   @id @default(cuid())
+  postTargetId String
+  fetchedAt    DateTime @default(now())
+  views        Int? // platform "views" (Meta's current unified metric)
+  reach        Int? // unique accounts reached, where the platform reports it
+  likes        Int?
+  comments     Int?
+  shares       Int?
+  saves        Int?
+  raw          String // full API response for audit/forward-compat
+
+  target PostTarget @relation(fields: [postTargetId], references: [id], onDelete: Cascade)
+
+  @@index([postTargetId, fetchedAt])
 }
 
 model PublishJob {

@@ -71,8 +71,9 @@ zustand · FullCalendar · jose · otplib · bcryptjs
 The UI (all screens), real auth, the encrypted vault, the Meta OAuth connect
 flow, the scheduling/publish pipeline, and the media pipeline (private
 storage with signed URLs, uploads, image variants, asset library, composer
-attachments, Instagram container + Reels flows), and the ffmpeg video
-transcode pipeline are implemented and tested (run `npm test` for the
-current suite). Remaining platform integrations, auto-captions, analytics
-pulls, and the AI studio are on the roadmap — see
+attachments, Instagram container + Reels flows), the ffmpeg video
+transcode pipeline, and the Meta insights collector (real-response-only
+metric snapshots) are implemented and tested (run `npm test` for the
+current suite). Remaining platform integrations, auto-captions, and
+the AI studio are on the roadmap — see
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#whats-next).

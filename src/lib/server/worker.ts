@@ -17,6 +17,7 @@ import { killSwitchOn } from "./settings";
 import { audit } from "./audit";
 import { sweepOrphanUploads } from "./sweep";
 import { processNextVideo } from "./video";
+import { collectMetricsCycle } from "./insights";
 
 const POLL_MS = 15_000;
 const MAX_ATTEMPTS = 5;
@@ -63,8 +64,9 @@ async function processJob(jobId: string, postTargetId: string, attempts: number,
   // Phase 1: the external publish. Only errors thrown HERE are publish
   // failures eligible for retry/permanent classification.
   let permalink: string;
+  let externalMediaId: string | null;
   try {
-    ({ permalink } = await publishTarget(postTargetId));
+    ({ permalink, externalMediaId } = await publishTarget(postTargetId));
   } catch (err) {
     await recordFailure(jobId, postTargetId, attempts, now, err);
     return;
@@ -78,7 +80,7 @@ async function processJob(jobId: string, postTargetId: string, attempts: number,
     try {
       await db.postTarget.update({
         where: { id: postTargetId },
-        data: { state: "published", permalink, error: null },
+        data: { state: "published", permalink, externalMediaId, error: null },
       });
       await db.publishJob.update({ where: { id: jobId }, data: { completedAt: new Date(), lastError: null } });
       await audit("publish.success", { metadata: { postTargetId, permalink } });
@@ -180,9 +182,15 @@ export function startWorker() {
     try {
       await runQueueCycle();
       // Hourly housekeeping: clear uploads that never completed.
-      if (cycles++ % 240 === 0) {
+      if (cycles % 240 === 0) {
         await sweepOrphanUploads().catch((err) => console.error("orphan sweep failed", err));
       }
+      // Metrics pulls every 6h (IG insight data lags up to 48h — polling
+      // faster buys nothing), first run ~5min after boot.
+      if (cycles % 1440 === 20) {
+        await collectMetricsCycle().catch((err) => console.error("metrics cycle failed", err));
+      }
+      cycles += 1;
     } catch (err) {
       console.error("worker cycle failed", err);
     } finally {

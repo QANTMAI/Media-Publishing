@@ -118,8 +118,12 @@ mock permalinks. Real Instagram publishing additionally needs
    TikTok, Pinterest, Google Business → Bluesky.
 2. Rest of video tooling: auto-captions (speech-to-text) and in-browser trim
    (transcodes + Reels publishing are done — docs/VIDEO.md).
-3. Analytics pulls from platform APIs — until then the Analytics/Dashboard
-   screens show only real counts derived from the portal's own records.
+3. Analytics pulls: Meta insights collection is BUILT (researched v25.0
+   metric names — `views`/`post_media_view` era, not the deprecated
+   `impressions` family; 6-hourly collector in the worker; time-series
+   `MetricSnapshot` rows written only from real API responses, mock
+   publishes get none). It activates with real tokens; X/LinkedIn/YouTube
+   metrics land with their integrations.
 4. AI content studio (bring-your-own-key) and the optimizer/growth engine.
 5. Production hardening: Postgres, KMS, S3 storage adapter, automated
    backups, observability, pen test.

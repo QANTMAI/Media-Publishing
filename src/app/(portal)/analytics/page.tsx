@@ -1,8 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { usePortal } from "@/lib/store";
 import { PLATFORM_COLORS } from "@/lib/platforms";
+
+interface MetricPost {
+  targetId: string;
+  caption: string;
+  account: { name: string; mark: string; handle: string };
+  permalink: string | null;
+  fetchedAt: string;
+  views: number | null;
+  reach: number | null;
+  likes: number | null;
+  comments: number | null;
+  shares: number | null;
+  saves: number | null;
+}
 
 /* Honest analytics: every figure on this page is computed from the portal's
  * own publishing records. Platform-side metrics (reach, engagement, clicks,
@@ -14,6 +28,20 @@ export default function AnalyticsPage() {
 
   // Snapshot of "now" per mount — render math must stay pure.
   const [now] = useState(() => Date.now());
+
+  // Real platform metrics (empty until insights pulls run with real tokens).
+  const [metricPosts, setMetricPosts] = useState<MetricPost[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/metrics").then(async (res) => {
+      if (cancelled || !res.ok) return;
+      const d = await res.json();
+      setMetricPosts(d.posts ?? []);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const last30 = posts.filter(
     (p) => p.scheduledAt && new Date(p.scheduledAt).getTime() > now - 30 * 24 * 60 * 60_000,
   );
@@ -91,21 +119,67 @@ export default function AnalyticsPage() {
         ))}
       </div>
 
-      <div
-        style={{
-          border: "2px solid var(--color-divider)",
-          background: "var(--color-bg)",
-          padding: "14px 16px",
-          fontSize: 13,
-          color: "var(--color-neutral-700)",
-          maxWidth: "70ch",
-        }}
-      >
-        <strong style={{ color: "var(--color-accent-700)" }}>Reach, engagement, and follower metrics</strong> come
-        from each platform&apos;s analytics API and are not connected yet. When those pulls land, this page adds
-        real per-post performance and plain-English recommendations — until then it only shows numbers the portal
-        can actually stand behind.
-      </div>
+      <p className="kick" style={{ color: "var(--color-accent)" }}>
+        Post performance · from platform insights
+      </p>
+      {metricPosts.length > 0 ? (
+        <div className="stack" style={{ marginBottom: 24 }}>
+          {metricPosts.slice(0, 10).map((m) => (
+            <div key={m.targetId} style={{ padding: "12px 18px", display: "flex", alignItems: "center", gap: 14 }}>
+              <div className="mark">{m.account.mark}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {m.caption}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--color-neutral-600)" }}>
+                  {m.account.handle} · pulled{" "}
+                  {new Date(m.fetchedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 16, fontSize: 12, color: "var(--color-neutral-700)", flex: "none" }}>
+                {([
+                  ["views", m.views],
+                  ["reach", m.reach],
+                  ["likes", m.likes],
+                  ["comments", m.comments],
+                  ["shares", m.shares],
+                  ["saves", m.saves],
+                ] as const)
+                  .filter(([, v]) => v != null)
+                  .map(([label, v]) => (
+                    <span key={label}>
+                      <strong style={{ fontFamily: "var(--font-heading)", fontWeight: 800 }}>{v}</strong> {label}
+                    </span>
+                  ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div
+          style={{
+            border: "2px solid var(--color-divider)",
+            background: "var(--color-bg)",
+            padding: "14px 16px",
+            fontSize: 13,
+            color: "var(--color-neutral-700)",
+            maxWidth: "70ch",
+          }}
+        >
+          <strong style={{ color: "var(--color-accent-700)" }}>No platform metrics yet.</strong> The collector
+          pulls real per-post insights (views, reach, likes, comments, shares, saves) from Meta&apos;s APIs for
+          posts published with <em>real</em> connected accounts. Mock publishes never get metrics — this page
+          only shows numbers a platform actually reported.
+        </div>
+      )}
     </div>
   );
 }

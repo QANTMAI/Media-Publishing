@@ -506,6 +506,47 @@ test("orphan sweep deletes abandoned uploads, keeps completed assets", async () 
   await api(`/api/assets/${keeperId}`, { method: "DELETE" });
 });
 
+test("metrics: mock publishes get NO snapshots; /api/metrics serves only real rows", async () => {
+  // The dev DB is full of mock-published targets (externalMediaId "mock_…").
+  // A collection cycle must skip every one of them — no fabricated numbers.
+  const { collectMetricsCycle } = await import("../src/lib/server/insights");
+  const before = await db.metricSnapshot.count();
+  const result = await collectMetricsCycle();
+  assert.equal(result.pulled, 0, "no real-token targets exist → nothing pulled");
+  assert.equal(await db.metricSnapshot.count(), before, "no snapshots fabricated for mock publishes");
+
+  // The read path, exercised with an explicit test snapshot (cleaned up).
+  const target = await db.postTarget.findFirst({ where: { state: "published" } });
+  assert.ok(target, "need a published target");
+  const snap = await db.metricSnapshot.create({
+    data: {
+      postTargetId: target!.id,
+      views: 1200,
+      reach: 950,
+      likes: 60,
+      comments: 8,
+      shares: 3,
+      saves: 5,
+      raw: JSON.stringify({ test: "fixture — integration test row" }),
+    },
+  });
+  try {
+    const res = await api("/api/metrics");
+    assert.equal(res.status, 200);
+    const d = await res.json();
+    const row = d.posts.find((p: { targetId: string }) => p.targetId === target!.id);
+    assert.ok(row, "snapshot surfaces in /api/metrics");
+    assert.equal(row.views, 1200);
+    assert.equal(row.reach, 950);
+    assert.equal(d.totals.views >= 1200, true, "totals aggregate");
+  } finally {
+    await db.metricSnapshot.delete({ where: { id: snap.id } });
+  }
+
+  const anon = await fetch(`${BASE}/api/metrics`);
+  assert.equal(anon.status, 401, "metrics endpoint requires auth");
+});
+
 test("autopilot plans real scheduled posts and cleans up on off", async () => {
   const on = await api("/api/autopilot", { method: "POST", body: JSON.stringify({ on: true }) });
   assert.equal(on.status, 200);

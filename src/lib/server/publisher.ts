@@ -35,6 +35,9 @@ export class PermanentError extends Error {
 
 export interface PublishResult {
   permalink: string;
+  /** Platform-side media/post id — the key for later insights pulls.
+   * Prefixed "mock_" for mock publishes (which never get metrics). */
+  externalMediaId: string | null;
 }
 
 export async function publishTarget(postTargetId: string): Promise<PublishResult> {
@@ -48,7 +51,7 @@ export async function publishTarget(postTargetId: string): Promise<PublishResult
   // Idempotency: if a previous cycle published but crashed before closing the
   // job, a reclaimed job must NOT publish again — return the recorded result.
   if (target.state === "published" && target.permalink) {
-    return { permalink: target.permalink };
+    return { permalink: target.permalink, externalMediaId: target.externalMediaId ?? null };
   }
 
   if (account.status === "paused") {
@@ -66,7 +69,10 @@ export async function publishTarget(postTargetId: string): Promise<PublishResult
 
   if (token.startsWith("mock-token-")) {
     // OAUTH_MOCK grant: simulate a successful publish, clearly labeled.
-    return { permalink: `https://mock.qantm.local/${account.platform}/${postTargetId}` };
+    return {
+      permalink: `https://mock.qantm.local/${account.platform}/${postTargetId}`,
+      externalMediaId: `mock_${postTargetId}`,
+    };
   }
 
   switch (account.platform) {
@@ -182,7 +188,7 @@ async function publishInstagramReel(
   } catch {
     // keep the fallback permalink
   }
-  return { permalink };
+  return { permalink, externalMediaId: published.id ?? null };
 }
 
 /** Instagram container flow: create a media container from a hosted image
@@ -221,7 +227,7 @@ async function publishInstagram(
   } catch {
     // keep the fallback permalink
   }
-  return { permalink };
+  return { permalink, externalMediaId: published.id ?? null };
 }
 
 async function graphPost<T>(path: string, params: Record<string, string>): Promise<T> {
@@ -274,5 +280,5 @@ async function publishFacebookPage(pageId: string, pageToken: string, message: s
     }
     throw new Error(`Facebook publish failed: ${msg}`);
   }
-  return { permalink: `https://www.facebook.com/${body.id}` };
+  return { permalink: `https://www.facebook.com/${body.id}`, externalMediaId: body.id ?? null };
 }
