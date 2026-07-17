@@ -794,3 +794,70 @@ test("credentials: keys are stored encrypted, returned only masked, and deletabl
   assert.equal(gone.credentials.find((c: { provider: string }) => c.provider === "anthropic").set, false);
   assert.equal((await api("/api/credentials/anthropic", { method: "DELETE" })).status, 404);
 });
+
+test("notifications: real publish failure notifies; prefs gate; review-ready; email honest", async () => {
+  const { runQueueCycle } = await import("../src/lib/server/worker");
+  // Clean slate for this operator's notifications.
+  await db.notification.deleteMany({ where: { userId } });
+
+  // Email is honestly reported as unconfigured in this env, and off by default.
+  const prefs0 = await (await api("/api/notifications/prefs")).json();
+  assert.equal(prefs0.emailConfigured, false, "no SMTP configured in test env");
+  assert.equal(prefs0.prefs.email, false);
+  assert.ok(prefs0.types.some((t: { key: string }) => t.key === "publish_failed"));
+
+  // A real permanent failure (no-token account) must create a publish_failed notification.
+  const yt = await db.socialAccount.findFirst({ where: { platform: "youtube" } });
+  const mk = async () => {
+    const res = await api("/api/posts", {
+      method: "POST",
+      body: JSON.stringify({ baseCaption: "notify fail test", accountIds: [yt!.id], date: "2030-01-01", time: "10:00", tz: "UTC" }),
+    });
+    const { postId } = await res.json();
+    const t = await db.postTarget.findFirst({ where: { postId } });
+    await db.publishJob.updateMany({ where: { postTargetId: t!.id }, data: { runAt: new Date(Date.now() - 1000) } });
+    await runQueueCycle();
+    return { postId, targetId: t!.id };
+  };
+  const first = await mk();
+  const failNote = await db.notification.findFirst({ where: { userId, type: "publish_failed" }, orderBy: { createdAt: "desc" } });
+  assert.ok(failNote, "a publish_failed notification was created");
+  assert.ok((failNote!.metadata ?? "").includes(first.targetId), "notification references the failed target");
+  assert.equal(failNote!.emailedAt, null, "no email sent when unconfigured");
+
+  // Masked API view + unread count + mark-read.
+  const list1 = await (await api("/api/notifications")).json();
+  assert.ok(list1.unread >= 1);
+  assert.ok(list1.notifications.some((n: { id: string }) => n.id === failNote!.id));
+  const read = await api("/api/notifications/read", { method: "POST", body: JSON.stringify({ id: failNote!.id }) });
+  assert.equal((await read.json()).count, 1);
+  const list2 = await (await api("/api/notifications")).json();
+  assert.equal(list2.unread, list1.unread - 1, "unread dropped after mark-read");
+
+  // Turning a type OFF suppresses it: a new failure creates no new publish_failed row.
+  await api("/api/notifications/prefs", { method: "PUT", body: JSON.stringify({ types: { publish_failed: false } }) });
+  const beforeCount = await db.notification.count({ where: { userId, type: "publish_failed" } });
+  const second = await mk();
+  const afterCount = await db.notification.count({ where: { userId, type: "publish_failed" } });
+  assert.equal(afterCount, beforeCount, "disabled type is suppressed");
+  await api("/api/notifications/prefs", { method: "PUT", body: JSON.stringify({ types: { publish_failed: true } }) });
+
+  // Review-mode autopilot creates a review_ready notification.
+  await api("/api/autopilot", { method: "POST", body: JSON.stringify({ on: false }) });
+  await api("/api/settings", { method: "PUT", body: JSON.stringify({ autopilotMode: "review" }) });
+  const on = await api("/api/autopilot", { method: "POST", body: JSON.stringify({ on: true }) });
+  if ((await on.json()).planned > 0) {
+    const reviewNote = await db.notification.findFirst({ where: { userId, type: "review_ready" } });
+    assert.ok(reviewNote, "review_ready notification created");
+  }
+
+  // mark-all-read clears unread.
+  await api("/api/notifications/read", { method: "POST", body: JSON.stringify({ all: true }) });
+  assert.equal((await (await api("/api/notifications")).json()).unread, 0);
+
+  // Cleanup.
+  await api("/api/autopilot", { method: "POST", body: JSON.stringify({ on: false }) });
+  await db.post.deleteMany({ where: { source: "autopilot" } });
+  await db.post.deleteMany({ where: { id: { in: [first.postId, second.postId] } } });
+  await db.notification.deleteMany({ where: { userId } });
+});

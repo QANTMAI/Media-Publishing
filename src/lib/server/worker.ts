@@ -15,6 +15,7 @@ import { db } from "./db";
 import { publishTarget, PermanentError } from "./publisher";
 import { killSwitchOn } from "./settings";
 import { audit } from "./audit";
+import { notify } from "./notifications";
 import { sweepOrphanUploads } from "./sweep";
 import { processNextVideo } from "./video";
 import { collectMetricsCycle } from "./insights";
@@ -126,6 +127,20 @@ async function recordFailure(jobId: string, postTargetId: string, attempts: numb
         db.postTarget.update({ where: { id: postTargetId }, data: { state: "failed", error: message } }),
       ]);
       await audit("publish.failed", { metadata: { postTargetId, error: message.slice(0, 300) } });
+      // Notify the operator — a broken publish must never be silent. Look up
+      // the owner + account for a specific message.
+      const t = await db.postTarget
+        .findUnique({ where: { id: postTargetId }, include: { post: { select: { userId: true } }, account: { select: { name: true, handle: true } } } })
+        .catch(() => null);
+      if (t) {
+        await notify(t.post.userId, {
+          type: "publish_failed",
+          title: `Post to ${t.account.name} failed`,
+          body: `${t.account.handle}: ${message.slice(0, 300)}`,
+          link: "/dashboard",
+          metadata: { postTargetId },
+        });
+      }
     } else {
       await db.$transaction([
         db.publishJob.update({

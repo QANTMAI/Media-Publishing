@@ -21,12 +21,35 @@ model User {
   totpLastStep BigInt? // last accepted TOTP time-step — blocks code replay
   createdAt    DateTime @default(now())
 
-  accounts    SocialAccount[]
-  posts       Post[]
-  assets      Asset[]
-  audits      AuditEvent[]
-  categories  Category[]
-  credentials Credential[]
+  accounts      SocialAccount[]
+  posts         Post[]
+  assets        Asset[]
+  audits        AuditEvent[]
+  categories    Category[]
+  credentials   Credential[]
+  notifications Notification[]
+}
+
+// Operator notifications, created by real events (a permanent publish failure,
+// Autopilot drafting posts for review, …). In-app is the source of truth;
+// email is an optional mirror sent when SMTP is configured and the operator
+// opted in. Never contains secrets.
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  type      String // publish_failed | review_ready (extensible)
+  level     String    @default("info") // info | warn | error
+  title     String
+  body      String
+  link      String? // in-app route to open, e.g. /dashboard
+  read      Boolean   @default(false)
+  emailedAt DateTime? // set when an email mirror was sent (null = in-app only)
+  metadata  String? // JSON; never secrets
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read, createdAt])
 }
 
 // Operator-supplied API keys (e.g. Anthropic), encrypted at rest with the same

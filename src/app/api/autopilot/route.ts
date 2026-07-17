@@ -3,6 +3,7 @@ import { db } from "@/lib/server/db";
 import { readSession } from "@/lib/server/session";
 import { autopilotMode, autopilotOn, setSetting } from "@/lib/server/settings";
 import { audit, requestIp } from "@/lib/server/audit";
+import { notify } from "@/lib/server/notifications";
 
 /* Autopilot (T-306 lite): ON plans a week of real scheduled posts across the
  * connected accounts — real Post/PostTarget/PublishJob rows, so the worker
@@ -71,6 +72,16 @@ export async function POST(req: Request) {
     }
     await setSetting("autopilot", "on");
     await audit("autopilot.on", { userId, ip: requestIp(req), metadata: { planned: created, mode } });
+    // In review mode, drafts wait for approval — surface that as a notification.
+    if (isReview && created > 0) {
+      await notify(userId, {
+        type: "review_ready",
+        title: `${created} draft${created > 1 ? "s" : ""} ready to review`,
+        body: `Autopilot planned ${created} post${created > 1 ? "s" : ""}. Approve, edit, or discard ${created > 1 ? "them" : "it"} on your dashboard.`,
+        link: "/dashboard",
+        metadata: { planned: created },
+      });
+    }
     return NextResponse.json({ autopilot: true, planned: created, mode });
   }
 

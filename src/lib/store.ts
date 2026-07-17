@@ -8,6 +8,7 @@ import type {
   Category,
   CategoryDef,
   Lens,
+  NotificationView,
   PostType,
   PostView,
   SocialAccount,
@@ -38,6 +39,8 @@ interface PortalState {
   posts: PostView[];
   accounts: SocialAccount[];
   categories: CategoryDef[];
+  notifications: NotificationView[];
+  unread: number;
   killOn: boolean;
   autopilot: boolean;
 
@@ -53,6 +56,9 @@ interface PortalState {
   refreshPosts: () => Promise<void>;
   refreshSettings: () => Promise<void>;
   refreshCategories: () => Promise<void>;
+  refreshNotifications: () => Promise<void>;
+  markNotification: (id: string) => Promise<void>;
+  markAllNotificationsRead: () => Promise<void>;
   createCategory: (name: string, color?: string) => Promise<boolean>;
   updateCategory: (id: string, patch: { name?: string; color?: string; hashtags?: string[] }) => Promise<boolean>;
   deleteCategory: (id: string) => Promise<boolean>;
@@ -116,6 +122,8 @@ export const usePortal = create<PortalState>()(
       posts: [],
       accounts: [],
       categories: [],
+      notifications: [],
+      unread: 0,
       killOn: false,
       autopilot: false,
 
@@ -171,6 +179,38 @@ export const usePortal = create<PortalState>()(
       refreshCategories: async () => {
         const res = await apiFetch("/api/categories");
         if (res?.ok) set({ categories: (await res.json()).categories });
+      },
+
+      refreshNotifications: async () => {
+        const res = await apiFetch("/api/notifications");
+        if (res?.ok) {
+          const d = await res.json();
+          set({ notifications: d.notifications, unread: d.unread });
+        }
+      },
+
+      markNotification: async (id) => {
+        // Optimistic: flip locally, then persist. Server is source of truth on
+        // the next refresh.
+        set((s) => {
+          const notifications = s.notifications.map((n) => (n.id === id && !n.read ? { ...n, read: true } : n));
+          const unread = notifications.filter((n) => !n.read).length;
+          return { notifications, unread };
+        });
+        await apiFetch("/api/notifications/read", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id }),
+        });
+      },
+
+      markAllNotificationsRead: async () => {
+        set((s) => ({ notifications: s.notifications.map((n) => ({ ...n, read: true })), unread: 0 }));
+        await apiFetch("/api/notifications/read", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ all: true }),
+        });
       },
 
       createCategory: async (name, color) => {

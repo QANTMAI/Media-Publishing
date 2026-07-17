@@ -105,12 +105,8 @@ export default function SettingsPage() {
       {/* ── Integrations / keys ── */}
       <IntegrationsCard />
 
-      {/* ── Notifications (Phase B) ── */}
-      <PlaceholderCard
-        title="Notifications"
-        lead="Choose when the portal alerts you — publish failures, expiring tokens, weekly summaries."
-        note="Delivery wiring ships with the observability phase."
-      />
+      {/* ── Notifications ── */}
+      <NotificationsCard />
     </div>
   );
 }
@@ -479,14 +475,136 @@ function CredentialRow({
   );
 }
 
-function PlaceholderCard({ title, lead, note }: { title: string; lead: string; note: string }) {
+interface PrefsPayload {
+  prefs: { types: Record<string, boolean>; email: boolean };
+  types: { key: string; label: string; description: string }[];
+  emailConfigured: boolean;
+}
+
+/* Notifications: real per-event toggles + email mirror. Events (publish
+ * failures, review-ready) create in-app notifications regardless of channel;
+ * these toggles decide which reach you, and email only sends when SMTP is
+ * configured on the deployment (honest "not configured" state otherwise). */
+function NotificationsCard() {
+  const notify = usePortal((s) => s.notify);
+  const [data, setData] = useState<PrefsPayload | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/notifications/prefs").then(async (res) => {
+      if (cancelled || !res.ok) return;
+      setData(await res.json());
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const save = async (patch: { types?: Record<string, boolean>; email?: boolean }) => {
+    const res = await fetch("/api/notifications/prefs", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (res.ok) {
+      const d = await res.json();
+      setData((prev) => (prev ? { ...prev, prefs: d.prefs, emailConfigured: d.emailConfigured } : prev));
+    } else {
+      notify("Could not save notification settings");
+    }
+  };
+
   return (
     <section>
-      <p className="kick">{title}</p>
+      <p className="kick">Notifications</p>
       <div className="stack stack-strong" style={{ padding: "18px 20px" }}>
-        <div style={{ fontSize: 13, color: "var(--color-neutral-700)" }}>{lead}</div>
-        <div style={{ marginTop: 10, fontSize: 12, color: "var(--color-neutral-600)" }}>{note}</div>
+        <div style={{ fontSize: 13, color: "var(--color-neutral-700)", marginBottom: 12 }}>
+          Choose which events reach you. Everything is recorded in the in-app bell; turning one off just stops it
+          appearing there.
+        </div>
+        {data === null ? (
+          <div style={{ fontSize: 13, color: "var(--color-neutral-600)" }}>Loading…</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {data.types.map((t) => (
+              <ToggleRow
+                key={t.key}
+                title={t.label}
+                subtitle={t.description}
+                on={data.prefs.types[t.key] ?? true}
+                onChange={(on) => save({ types: { [t.key]: on } })}
+              />
+            ))}
+            <div style={{ height: 1, background: "var(--color-divider)", margin: "8px 0" }} />
+            <ToggleRow
+              title="Email me too"
+              subtitle={
+                data.emailConfigured
+                  ? "Mirror notifications to your account email."
+                  : "Email delivery isn't configured on this deployment (set SMTP_URL + SMTP_FROM to enable)."
+              }
+              on={data.prefs.email}
+              disabled={!data.emailConfigured}
+              onChange={(on) => save({ email: on })}
+            />
+          </div>
+        )}
       </div>
     </section>
+  );
+}
+
+function ToggleRow({
+  title,
+  subtitle,
+  on,
+  disabled,
+  onChange,
+}: {
+  title: string;
+  subtitle: string;
+  on: boolean;
+  disabled?: boolean;
+  onChange: (on: boolean) => void;
+}) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0", opacity: disabled ? 0.6 : 1 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 600, fontSize: 14 }}>{title}</div>
+        <div style={{ fontSize: 12, color: "var(--color-neutral-600)" }}>{subtitle}</div>
+      </div>
+      <button
+        role="switch"
+        aria-checked={on}
+        aria-label={title}
+        disabled={disabled}
+        onClick={() => onChange(!on)}
+        style={{
+          flex: "none",
+          width: 44,
+          height: 26,
+          borderRadius: 999,
+          border: "1px solid var(--color-divider)",
+          background: on ? "var(--color-accent)" : "var(--color-neutral-300)",
+          position: "relative",
+          cursor: disabled ? "not-allowed" : "pointer",
+          transition: "background 0.15s",
+        }}
+      >
+        <span
+          style={{
+            position: "absolute",
+            top: 2,
+            left: on ? 20 : 2,
+            width: 20,
+            height: 20,
+            borderRadius: "50%",
+            background: "#fff",
+            boxShadow: "0 1px 2px rgba(0,0,0,0.3)",
+            transition: "left 0.15s",
+          }}
+        />
+      </button>
+    </div>
   );
 }

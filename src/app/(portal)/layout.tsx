@@ -8,6 +8,7 @@ import { LogOut, Sparkles } from "lucide-react";
 import { usePortal, useStoreHydration } from "@/lib/store";
 import { Toast } from "@/components/Toast";
 import { PostDialog } from "@/components/PostDialog";
+import { NotificationBell } from "@/components/NotificationBell";
 
 // Handoff #2: Analytics is no longer a nav item — it lives as a Dashboard
 // section. Settings is new.
@@ -167,6 +168,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
             {pageTitle}
           </div>
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <NotificationBell />
             <button
               className="btn"
               onClick={async () => {

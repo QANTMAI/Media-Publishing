@@ -42,6 +42,19 @@ export interface CategoryDef {
   sortOrder: number;
 }
 
+/** One notification, as served by GET /api/notifications. */
+export interface NotificationView {
+  id: string;
+  type: string;
+  level: string; // info | warn | error
+  title: string;
+  body: string;
+  link: string | null;
+  read: boolean;
+  emailed: boolean;
+  createdAt: string;
+}
+
 export type PostStatus = "draft" | "scheduled" | "publishing" | "published" | "failed";
 
 /** One post target as served by GET /api/posts — the unit the calendar,
