@@ -604,10 +604,12 @@ test("metrics: mock publishes get NO snapshots; /api/metrics serves only real ro
   assert.equal(anon.status, 401, "metrics endpoint requires auth");
 });
 
-test("autopilot plans real scheduled posts and cleans up on off", async () => {
+test("autopilot (auto mode) plans real scheduled posts and cleans up on off", async () => {
   // Ensure a clean OFF baseline — autopilot ON is idempotent, so a lingering
   // ON from prior use would return planned:0.
   await api("/api/autopilot", { method: "POST", body: JSON.stringify({ on: false }) });
+  // Auto-schedule mode is what queues jobs directly (review mode drafts instead).
+  await api("/api/settings", { method: "PUT", body: JSON.stringify({ autopilotMode: "auto" }) });
   const on = await api("/api/autopilot", { method: "POST", body: JSON.stringify({ on: true }) });
   assert.equal(on.status, 200);
   const { planned } = await on.json();
@@ -638,4 +640,106 @@ test("autopilot plans real scheduled posts and cleans up on off", async () => {
     where: { source: "autopilot", targets: { none: { state: { in: ["published", "publishing"] } } } },
   });
   assert.equal(remaining, 0, "unpublished autopilot posts removed");
+  await api("/api/settings", { method: "PUT", body: JSON.stringify({ autopilotMode: "review" }) });
+});
+
+test("autopilot (review mode) drafts for the inbox; approve queues, discard removes", async () => {
+  await api("/api/autopilot", { method: "POST", body: JSON.stringify({ on: false }) });
+  await api("/api/settings", { method: "PUT", body: JSON.stringify({ autopilotMode: "review" }) });
+  const on = await api("/api/autopilot", { method: "POST", body: JSON.stringify({ on: true }) });
+  assert.equal(on.status, 200);
+  const body = await on.json();
+  assert.equal(body.mode, "review");
+  assert.ok(body.planned >= 1, "at least one review draft planned");
+
+  // Review-mode plans are DRAFTS with no queue jobs — nothing publishes until approved.
+  const drafts = await db.post.findMany({
+    where: { source: "autopilot", status: "draft" },
+    include: { targets: { include: { jobs: true } } },
+  });
+  assert.ok(drafts.length >= 1, "autopilot created draft posts");
+  for (const d of drafts) {
+    assert.equal(d.targets[0].state, "draft");
+    assert.equal(d.targets[0].jobs.length, 0, "review drafts have no publish job");
+  }
+
+  // Approve one → it schedules and gets a real job.
+  const toApprove = drafts[0];
+  const appr = await api(`/api/posts/${toApprove.id}/approve`, { method: "POST" });
+  assert.equal(appr.status, 200);
+  const approved = await db.post.findUnique({
+    where: { id: toApprove.id },
+    include: { targets: { include: { jobs: true } } },
+  });
+  assert.equal(approved!.status, "scheduled");
+  assert.equal(approved!.targets[0].state, "scheduled");
+  assert.equal(approved!.targets[0].jobs.length, 1, "approved draft is queued");
+  assert.ok(approved!.targets[0].jobs[0].runAt.getTime() > Date.now(), "job runs in the future");
+
+  // Discard another → gone; and a scheduled post can't be discarded.
+  if (drafts[1]) {
+    const del = await api(`/api/posts/${drafts[1].id}`, { method: "DELETE" });
+    assert.equal(del.status, 200);
+    assert.equal(await db.post.count({ where: { id: drafts[1].id } }), 0, "discarded draft removed");
+  }
+  const cantDiscard = await api(`/api/posts/${toApprove.id}`, { method: "DELETE" });
+  assert.equal(cantDiscard.status, 409, "scheduled posts can't be discarded");
+
+  // Clean up: autopilot off removes remaining unpublished autopilot posts, but
+  // the one we approved (now scheduled, with a job) also gets cleaned since no
+  // target is published/publishing/claimed.
+  await api("/api/autopilot", { method: "POST", body: JSON.stringify({ on: false }) });
+  await db.post.deleteMany({ where: { source: "autopilot" } });
+});
+
+test("categories: defaults seed, create, rename relabels posts, recolor, delete guards last", async () => {
+  // Defaults are seeded on first read.
+  const list = await (await api("/api/categories")).json();
+  assert.ok(list.categories.length >= 6, "default categories seeded");
+  assert.ok(list.categories.some((c: { name: string }) => c.name === "Promo"), "Promo default present");
+
+  // Create — unique name enforced.
+  const created = await api("/api/categories", { method: "POST", body: JSON.stringify({ name: "Test Cat", color: "#123456" }) });
+  assert.equal(created.status, 201);
+  const cat = await created.json();
+  assert.equal(cat.color, "#123456");
+  const dup = await api("/api/categories", { method: "POST", body: JSON.stringify({ name: "Test Cat" }) });
+  assert.equal(dup.status, 409, "duplicate name rejected");
+
+  // A post using the category follows a rename.
+  const ig = await db.socialAccount.findFirst({ where: { platform: "instagram", status: "connected" } });
+  const postRes = await api("/api/posts", {
+    method: "POST",
+    body: JSON.stringify({ baseCaption: "cat rename test", category: "Test Cat", accountIds: [ig!.id], date: "2030-02-01", time: "10:00", tz: "UTC" }),
+  });
+  const { postId } = await postRes.json();
+  const renamed = await api(`/api/categories/${cat.id}`, { method: "PATCH", body: JSON.stringify({ name: "Renamed Cat" }) });
+  assert.equal(renamed.status, 200);
+  assert.equal((await db.post.findUnique({ where: { id: postId } }))!.category, "Renamed Cat", "rename relabels existing posts");
+
+  // Recolor.
+  const recolor = await api(`/api/categories/${cat.id}`, { method: "PATCH", body: JSON.stringify({ color: "#abcdef" }) });
+  assert.equal(recolor.status, 200);
+  assert.equal((await db.category.findUnique({ where: { id: cat.id } }))!.color, "#abcdef");
+  // Bad hex rejected.
+  const badColor = await api(`/api/categories/${cat.id}`, { method: "PATCH", body: JSON.stringify({ color: "red" }) });
+  assert.equal(badColor.status, 400);
+
+  // Delete — post keeps its (now-orphaned) category name, nothing cascades.
+  const del = await api(`/api/categories/${cat.id}`, { method: "DELETE" });
+  assert.equal(del.status, 200);
+  assert.equal((await db.post.findUnique({ where: { id: postId } }))!.category, "Renamed Cat", "post history intact after delete");
+  await db.post.delete({ where: { id: postId } });
+
+  // Can't delete the last category.
+  const all = await db.category.findMany({ where: { userId } });
+  const extras = all.slice(1);
+  // Temporarily remove all but one, assert the last is protected, then restore.
+  for (const c of extras) await db.category.delete({ where: { id: c.id } });
+  const guarded = await api(`/api/categories/${all[0].id}`, { method: "DELETE" });
+  assert.equal(guarded.status, 409, "last category is protected");
+  // Restore defaults for other tests / the app.
+  for (const c of extras) {
+    await db.category.create({ data: { userId, name: c.name, color: c.color, hashtags: c.hashtags, sortOrder: c.sortOrder } });
+  }
 });

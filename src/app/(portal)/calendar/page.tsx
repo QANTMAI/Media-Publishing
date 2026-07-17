@@ -8,8 +8,8 @@ import listPlugin from "@fullcalendar/list";
 import interactionPlugin from "@fullcalendar/interaction";
 import type { DatesSetArg, EventClickArg, EventDropArg } from "@fullcalendar/core";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { usePortal } from "@/lib/store";
-import { CATEGORY_COLORS, PLATFORM_COLORS, STATUS_COLORS, postColor } from "@/lib/platforms";
+import { usePortal, categoryColorResolver } from "@/lib/store";
+import { PLATFORM_COLORS, STATUS_COLORS, postColor } from "@/lib/platforms";
 import type { CalView, Lens } from "@/lib/types";
 
 const FC_VIEWS: Record<CalView, string> = {
@@ -21,16 +21,17 @@ const FC_VIEWS: Record<CalView, string> = {
 const DRAGGABLE_STATES = new Set(["draft", "scheduled", "failed"]);
 
 export default function CalendarPage() {
-  const { posts, lens, calView, setCalView, setLens, openDialog, rescheduleTarget } = usePortal();
+  const { posts, categories, lens, calView, setCalView, setLens, openDialog, rescheduleTarget } = usePortal();
   const calRef = useRef<FullCalendar>(null);
   const [rangeLabel, setRangeLabel] = useState("");
+  const colorFor = useMemo(() => categoryColorResolver(categories), [categories]);
 
   const events = useMemo(
     () =>
       posts
         .filter((p) => p.scheduledAt)
         .map((p) => {
-          const c = postColor(p, lens);
+          const c = postColor(p, lens, colorFor);
           const statusWord = lens === "status" ? ` · ${p.status}` : "";
           return {
             id: p.id,
@@ -45,25 +46,26 @@ export default function CalendarPage() {
             editable: DRAGGABLE_STATES.has(p.status),
           };
         }),
-    [posts, lens],
+    [posts, lens, colorFor],
   );
 
   const legend = useMemo(() => {
+    if (lens === "category") {
+      return categories.map((c) => ({ label: c.name, color: c.color }));
+    }
     const map: Record<string, string> =
-      lens === "category"
-        ? CATEGORY_COLORS
-        : lens === "status"
-          ? STATUS_COLORS
-          : {
-              Instagram: PLATFORM_COLORS.IG,
-              Facebook: PLATFORM_COLORS.FB,
-              X: PLATFORM_COLORS.X,
-              LinkedIn: PLATFORM_COLORS.IN,
-              YouTube: PLATFORM_COLORS.YT,
-              TikTok: PLATFORM_COLORS.TT,
-            };
+      lens === "status"
+        ? STATUS_COLORS
+        : {
+            Instagram: PLATFORM_COLORS.IG,
+            Facebook: PLATFORM_COLORS.FB,
+            X: PLATFORM_COLORS.X,
+            LinkedIn: PLATFORM_COLORS.IN,
+            YouTube: PLATFORM_COLORS.YT,
+            TikTok: PLATFORM_COLORS.TT,
+          };
     return Object.entries(map).map(([label, color]) => ({ label, color }));
-  }, [lens]);
+  }, [lens, categories]);
 
   const nav = (dir: "prev" | "next" | "today") => {
     const api = calRef.current?.getApi();

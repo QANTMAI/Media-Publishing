@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Plus, Trash2 } from "lucide-react";
 import { usePortal } from "@/lib/store";
+import type { CategoryDef } from "@/lib/types";
 
-/* Settings (handoff #2 §7). Phase A ships the shell + the Autopilot delivery
- * mode (real, persisted). Category management, API-key storage, and
- * notification wiring land in Phase B — shown here honestly as what's coming,
- * not as working controls. */
+/* Settings (handoff #2 §7). Autopilot delivery mode and category management are
+ * real and persisted. API-key storage and notification wiring land later —
+ * shown here honestly as what's coming, not as working controls. */
 
 type Mode = "review" | "auto";
 
@@ -86,12 +87,8 @@ export default function SettingsPage() {
         </div>
       </section>
 
-      {/* ── Categories (Phase B) ── */}
-      <PlaceholderCard
-        title="Categories"
-        lead="Rename, recolor, add, and delete the content categories used by the composer and calendar."
-        note="Category management ships in the next phase — today the composer's ＋ New adds categories for your session."
-      />
+      {/* ── Categories ── */}
+      <CategoriesCard />
 
       {/* ── Integrations / keys (Phase B) ── */}
       <section>
@@ -117,6 +114,149 @@ export default function SettingsPage() {
         lead="Choose when the portal alerts you — publish failures, expiring tokens, weekly summaries."
         note="Delivery wiring ships with the observability phase."
       />
+    </div>
+  );
+}
+
+/* Category management: create / rename / recolor / delete. Wired to the real
+ * /api/categories endpoints via the store — a rename relabels existing posts,
+ * a delete leaves history intact (posts keep the name, fall back to neutral),
+ * and the last category can't be removed. */
+function CategoriesCard() {
+  const { categories, createCategory, updateCategory, deleteCategory } = usePortal();
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+  const [color, setColor] = useState("#ff563c");
+
+  const add = async () => {
+    if (!name.trim()) return;
+    const ok = await createCategory(name.trim(), color);
+    if (ok) {
+      setName("");
+      setColor("#ff563c");
+      setAdding(false);
+    }
+  };
+
+  return (
+    <section>
+      <p className="kick">Categories</p>
+      <div className="stack stack-strong" style={{ padding: "18px 20px" }}>
+        <div style={{ fontSize: 13, color: "var(--color-neutral-700)", marginBottom: 14 }}>
+          Content categories used by the composer and the calendar&apos;s color lens. Renaming one relabels the
+          posts that use it; deleting one leaves that history intact.
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {categories.map((c) => (
+            <CategoryRow
+              key={c.id}
+              cat={c}
+              canDelete={categories.length > 1}
+              onRecolor={(hex) => updateCategory(c.id, { color: hex })}
+              onRename={(next) => updateCategory(c.id, { name: next })}
+              onDelete={() => deleteCategory(c.id)}
+            />
+          ))}
+        </div>
+
+        {adding ? (
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12 }}>
+            <input
+              type="color"
+              value={color}
+              onChange={(e) => setColor(e.target.value)}
+              aria-label="New category color"
+              style={{ width: 34, height: 34, flex: "none", border: "1px solid var(--color-divider)", background: "none", cursor: "pointer" }}
+            />
+            <input
+              className="input"
+              autoFocus
+              value={name}
+              placeholder="Category name"
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") add();
+                if (e.key === "Escape") setAdding(false);
+              }}
+              style={{ flex: 1 }}
+            />
+            <button className="btn btn-primary" onClick={add} style={{ flex: "none" }}>
+              Add
+            </button>
+            <button className="btn btn-ghost" onClick={() => setAdding(false)} style={{ flex: "none" }}>
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button className="btn btn-secondary" onClick={() => setAdding(true)} style={{ marginTop: 12, alignSelf: "flex-start" }}>
+            <Plus size={15} /> Add category
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function CategoryRow({
+  cat,
+  canDelete,
+  onRecolor,
+  onRename,
+  onDelete,
+}: {
+  cat: CategoryDef;
+  canDelete: boolean;
+  onRecolor: (hex: string) => void;
+  onRename: (name: string) => void;
+  onDelete: () => void;
+}) {
+  const [name, setName] = useState(cat.name);
+  const [syncedName, setSyncedName] = useState(cat.name);
+
+  // Keep the field in sync if the category name changes underneath (e.g. a
+  // refresh after a rename) — adjusted during render, not in an effect.
+  if (cat.name !== syncedName) {
+    setSyncedName(cat.name);
+    setName(cat.name);
+  }
+
+  const commit = () => {
+    const next = name.trim();
+    if (next && next !== cat.name) onRename(next);
+    else setName(cat.name);
+  };
+
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+      <input
+        type="color"
+        value={cat.color}
+        onChange={(e) => onRecolor(e.target.value)}
+        aria-label={`${cat.name} color`}
+        title="Recolor"
+        style={{ width: 34, height: 34, flex: "none", border: "1px solid var(--color-divider)", background: "none", cursor: "pointer" }}
+      />
+      <input
+        className="input"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+          if (e.key === "Escape") setName(cat.name);
+        }}
+        style={{ flex: 1 }}
+      />
+      <button
+        className="btn btn-ghost"
+        onClick={onDelete}
+        disabled={!canDelete}
+        title={canDelete ? "Delete category" : "Keep at least one category"}
+        aria-label={`Delete ${cat.name}`}
+        style={{ flex: "none", padding: "0 10px", opacity: canDelete ? 1 : 0.4 }}
+      >
+        <Trash2 size={15} />
+      </button>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import type { Category, Lens, PlatformMark, PlatformRules, PostStatus, PostView } from "./types";
+import type { Lens, PlatformMark, PlatformRules, PostStatus, PostView } from "./types";
 import { VIDEO_SPECS } from "./video-specs";
 
 /* ── Platform rules engine (versioned config — Build Plan §03.2) ──
@@ -48,15 +48,40 @@ export const MARK_TO_PLATFORM: Partial<Record<PlatformMark, string>> = {
   IG: "instagram", X: "x", IN: "linkedin", FB: "facebook", YT: "youtube", TT: "tiktok",
 };
 
-/* ── Color lenses (README design tokens) ── */
-export const CATEGORY_COLORS: Record<Category, string> = {
-  Promo: "#ff563c",
-  Educational: "#605d5d",
-  "Behind the scenes": "#bab6b6",
-  Tutorial: "#2d2b2b",
-  Trend: "#ae1800",
-  News: "#7c1405",
-};
+/* ── Default categories (README design tokens) ──
+ * The seed source of truth for a new operator's content categories. Categories
+ * are editable data (see the Category model): these values are only used to
+ * seed defaults on first use and as a fallback color when a post references a
+ * category that no longer exists. */
+export interface CategorySeed {
+  name: string;
+  color: string;
+  hashtags: string[];
+}
+
+export const DEFAULT_CATEGORIES: CategorySeed[] = [
+  { name: "Promo", color: "#ff563c", hashtags: ["#newdrop", "#shopnow", "#limitededition", "#musthave"] },
+  { name: "Educational", color: "#605d5d", hashtags: ["#howto", "#tips", "#learnwithme", "#didyouknow"] },
+  { name: "Behind the scenes", color: "#bab6b6", hashtags: ["#bts", "#studiolife", "#makingof", "#process"] },
+  { name: "Tutorial", color: "#2d2b2b", hashtags: ["#tutorial", "#stepbystep", "#guide", "#howto"] },
+  { name: "Trend", color: "#ae1800", hashtags: ["#trending", "#viral", "#fyp", "#trendalert"] },
+  { name: "News", color: "#7c1405", hashtags: ["#news", "#update", "#announcement", "#industry"] },
+];
+
+/** Fallback color map derived from the defaults — used when no live category
+ * resolver is supplied (e.g. unit tests) or a category was deleted. */
+export const CATEGORY_COLORS: Record<string, string> = Object.fromEntries(
+  DEFAULT_CATEGORIES.map((c) => [c.name, c.color]),
+);
+
+/** Neutral color for a category with no known color. */
+export const CATEGORY_FALLBACK_COLOR = "#605d5d";
+
+/** Palette cycled through when the operator creates a category without picking
+ * a color (composer ＋New). Distinct from the neutral fallback. */
+export const CATEGORY_PALETTE = [
+  "#ff563c", "#ae1800", "#2f54d1", "#0a7d55", "#7c1405", "#605d5d", "#c94b39", "#444141",
+];
 
 export const PLATFORM_COLORS: Record<PlatformMark, string> = {
   IG: "#ff563c", FB: "#7d7979", X: "#201e1d", IN: "#605d5d", YT: "#ae1800",
@@ -71,24 +96,27 @@ export const STATUS_COLORS: Record<PostStatus, string> = {
   failed: "#ec3013",
 };
 
-export const CATEGORIES: Category[] = [
-  "Promo", "Educational", "Behind the scenes", "Tutorial", "Trend", "News",
-];
+/** Default category names — fallback list when live categories aren't loaded. */
+export const CATEGORIES: string[] = DEFAULT_CATEGORIES.map((c) => c.name);
 
-export const HASHTAG_SUGGESTIONS: Record<Category, string[]> = {
-  Promo: ["#newdrop", "#shopnow", "#limitededition", "#musthave"],
-  Educational: ["#howto", "#tips", "#learnwithme", "#didyouknow"],
-  "Behind the scenes": ["#bts", "#studiolife", "#makingof", "#process"],
-  Tutorial: ["#tutorial", "#stepbystep", "#guide", "#howto"],
-  Trend: ["#trending", "#viral", "#fyp", "#trendalert"],
-  News: ["#news", "#update", "#announcement", "#industry"],
-};
+/** Default hashtag suggestions by category name — fallback for the composer. */
+export const HASHTAG_SUGGESTIONS: Record<string, string[]> = Object.fromEntries(
+  DEFAULT_CATEGORIES.map((c) => [c.name, c.hashtags]),
+);
 
 export const BRAND_HASHTAGS = ["#qantmai", "#creator", "#contentcreator", "#smallbusiness"];
 
-/** Color for a post under the active lens. */
-export function postColor(post: PostView, lens: Lens): string {
-  if (lens === "category") return CATEGORY_COLORS[post.category] ?? "#605d5d";
-  if (lens === "platform") return PLATFORM_COLORS[post.account.mark] ?? "#605d5d";
-  return STATUS_COLORS[post.status] ?? "#605d5d";
+/** Color for a post under the active lens. Pass `colorForCategory` (from the
+ * operator's live categories) so a renamed/recolored category shows correctly;
+ * without it, falls back to the seeded default colors. */
+export function postColor(
+  post: PostView,
+  lens: Lens,
+  colorForCategory?: (name: string) => string | undefined,
+): string {
+  if (lens === "category") {
+    return colorForCategory?.(post.category) ?? CATEGORY_COLORS[post.category] ?? CATEGORY_FALLBACK_COLOR;
+  }
+  if (lens === "platform") return PLATFORM_COLORS[post.account.mark] ?? CATEGORY_FALLBACK_COLOR;
+  return STATUS_COLORS[post.status] ?? CATEGORY_FALLBACK_COLOR;
 }

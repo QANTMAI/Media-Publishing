@@ -21,10 +21,31 @@ model User {
   totpLastStep BigInt? // last accepted TOTP time-step — blocks code replay
   createdAt    DateTime @default(now())
 
-  accounts SocialAccount[]
-  posts    Post[]
-  assets   Asset[]
-  audits   AuditEvent[]
+  accounts   SocialAccount[]
+  posts      Post[]
+  assets     Asset[]
+  audits     AuditEvent[]
+  categories Category[]
+}
+
+// Content categories — per operator, editable (create/rename/recolor/delete).
+// Posts reference a category by NAME (a plain string on Post), not by FK: a
+// deleted category must never cascade-delete posting history, and a rename
+// updates existing posts explicitly. Defaults are seeded on first use.
+model Category {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  color     String // hex, drives the calendar "category" lens
+  hashtags  String? // comma-joined suggestion list for the composer
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@index([userId, sortOrder])
 }
 
 // One row per encrypted credential. AES-256-GCM envelope encryption; the

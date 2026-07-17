@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/server/db";
 import { readSession } from "@/lib/server/session";
-import { autopilotOn, setSetting } from "@/lib/server/settings";
+import { autopilotMode, autopilotOn, setSetting } from "@/lib/server/settings";
 import { audit, requestIp } from "@/lib/server/audit";
 
 /* Autopilot (T-306 lite): ON plans a week of real scheduled posts across the
@@ -31,8 +31,14 @@ export async function POST(req: Request) {
     // Idempotent: a double-submit (two tabs, retried request) must not plan
     // a second week of duplicate posts.
     if (await autopilotOn()) {
-      return NextResponse.json({ autopilot: true, planned: 0 });
+      return NextResponse.json({ autopilot: true, planned: 0, mode: await autopilotMode() });
     }
+    // Delivery mode decides what "planning" produces:
+    //  • review — drafts that wait in the dashboard review inbox (no job,
+    //    nothing publishes until the operator approves each).
+    //  • auto   — scheduled posts with real queue jobs, published by the worker.
+    const mode = await autopilotMode();
+    const isReview = mode === "review";
     const connected = await db.socialAccount.findMany({
       where: { userId, status: "connected" },
     });
@@ -50,18 +56,22 @@ export async function POST(req: Request) {
           userId,
           baseCaption: item.caption,
           category: item.category,
-          status: "scheduled",
+          status: isReview ? "draft" : "scheduled",
           source: "autopilot",
-          targets: { create: [{ socialAccountId: account.id, scheduledAt: when, state: "scheduled" }] },
+          // Review drafts keep their planned time (shown in the inbox / carried
+          // into the queue on approval) but get no job yet.
+          targets: { create: [{ socialAccountId: account.id, scheduledAt: when, state: isReview ? "draft" : "scheduled" }] },
         },
         include: { targets: true },
       });
-      await db.publishJob.create({ data: { postTargetId: post.targets[0].id, runAt: when } });
+      if (!isReview) {
+        await db.publishJob.create({ data: { postTargetId: post.targets[0].id, runAt: when } });
+      }
       created += 1;
     }
     await setSetting("autopilot", "on");
-    await audit("autopilot.on", { userId, ip: requestIp(req), metadata: { planned: created } });
-    return NextResponse.json({ autopilot: true, planned: created });
+    await audit("autopilot.on", { userId, ip: requestIp(req), metadata: { planned: created, mode } });
+    return NextResponse.json({ autopilot: true, planned: created, mode });
   }
 
   // OFF: remove AI-planned posts that haven't gone out (cascade deletes

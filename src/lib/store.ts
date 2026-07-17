@@ -6,12 +6,13 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import type {
   CalView,
   Category,
+  CategoryDef,
   Lens,
   PostType,
   PostView,
   SocialAccount,
 } from "./types";
-import { MARK_TO_PLATFORM } from "./platforms";
+import { CATEGORY_COLORS, CATEGORY_FALLBACK_COLOR, MARK_TO_PLATFORM } from "./platforms";
 
 /* Server truth: auth (httpOnly cookies), accounts (/api/accounts), posts and
  * jobs (/api/posts), kill switch + autopilot (/api/settings). This store is a
@@ -36,6 +37,7 @@ interface PortalState {
   // server-cached data
   posts: PostView[];
   accounts: SocialAccount[];
+  categories: CategoryDef[];
   killOn: boolean;
   autopilot: boolean;
 
@@ -50,11 +52,18 @@ interface PortalState {
   setAccounts: (accounts: SocialAccount[]) => void;
   refreshPosts: () => Promise<void>;
   refreshSettings: () => Promise<void>;
+  refreshCategories: () => Promise<void>;
+  createCategory: (name: string, color?: string) => Promise<boolean>;
+  updateCategory: (id: string, patch: { name?: string; color?: string; hashtags?: string[] }) => Promise<boolean>;
+  deleteCategory: (id: string) => Promise<boolean>;
   toggleKill: () => Promise<void>;
   toggleAutopilot: () => Promise<boolean>;
   cancelTarget: (id: string) => Promise<boolean>;
   rescheduleTarget: (id: string, scheduledAtIso: string) => Promise<boolean>;
   setPostCategory: (postId: string, category: string) => Promise<void>;
+  editPostCaption: (postId: string, caption: string) => Promise<boolean>;
+  approveDraft: (postId: string) => Promise<boolean>;
+  discardDraft: (postId: string) => Promise<boolean>;
   setCalView: (v: CalView) => void;
   setLens: (l: Lens) => void;
   openDialog: (id: string) => void;
@@ -106,6 +115,7 @@ export const usePortal = create<PortalState>()(
 
       posts: [],
       accounts: [],
+      categories: [],
       killOn: false,
       autopilot: false,
 
@@ -158,6 +168,52 @@ export const usePortal = create<PortalState>()(
         }
       },
 
+      refreshCategories: async () => {
+        const res = await apiFetch("/api/categories");
+        if (res?.ok) set({ categories: (await res.json()).categories });
+      },
+
+      createCategory: async (name, color) => {
+        const res = await apiFetch("/api/categories", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, ...(color ? { color } : {}) }),
+        });
+        if (res?.ok) {
+          await get().refreshCategories();
+          get().notify(`Category “${name}” added`);
+          return true;
+        }
+        if (res) get().notify((await res.json().catch(() => ({}))).error ?? "Could not add category");
+        return false;
+      },
+
+      updateCategory: async (id, patch) => {
+        const res = await apiFetch(`/api/categories/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        });
+        if (res?.ok) {
+          // A rename relabels existing posts server-side — refresh both.
+          await Promise.all([get().refreshCategories(), get().refreshPosts()]);
+          return true;
+        }
+        if (res) get().notify((await res.json().catch(() => ({}))).error ?? "Could not update category");
+        return false;
+      },
+
+      deleteCategory: async (id) => {
+        const res = await apiFetch(`/api/categories/${id}`, { method: "DELETE" });
+        if (res?.ok) {
+          await get().refreshCategories();
+          get().notify("Category deleted");
+          return true;
+        }
+        if (res) get().notify((await res.json().catch(() => ({}))).error ?? "Could not delete category");
+        return false;
+      },
+
       toggleKill: async () => {
         const next = !get().killOn;
         const res = await apiFetch("/api/settings", {
@@ -190,10 +246,15 @@ export const usePortal = create<PortalState>()(
         await get().refreshPosts();
         get().notify(
           d.autopilot
-            ? `Autopilot on — planned ${d.planned} posts this week`
+            ? d.mode === "review"
+              ? `Autopilot on — drafted ${d.planned} posts for your review`
+              : `Autopilot on — scheduled ${d.planned} posts this week`
             : `Autopilot paused — ${d.removed} AI-planned posts removed`,
         );
-        return d.autopilot === true;
+        // Review mode holds drafts on the dashboard; auto mode fills the
+        // calendar. The caller (topbar/dashboard) jumps to the calendar only
+        // when there's something scheduled to see.
+        return d.autopilot === true && d.mode !== "review";
       },
 
       cancelTarget: async (id) => {
@@ -247,6 +308,44 @@ export const usePortal = create<PortalState>()(
         }
       },
 
+      editPostCaption: async (postId, caption) => {
+        const res = await apiFetch(`/api/posts/${postId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ baseCaption: caption }),
+        });
+        if (res?.ok) {
+          await get().refreshPosts();
+          return true;
+        }
+        if (res) get().notify((await res.json().catch(() => ({}))).error ?? "Could not save caption");
+        return false;
+      },
+
+      approveDraft: async (postId) => {
+        const res = await apiFetch(`/api/posts/${postId}/approve`, { method: "POST" });
+        if (res?.ok) {
+          set({ dialogId: null });
+          await get().refreshPosts();
+          get().notify("Approved — added to the schedule");
+          return true;
+        }
+        if (res) get().notify((await res.json().catch(() => ({}))).error ?? "Could not approve");
+        return false;
+      },
+
+      discardDraft: async (postId) => {
+        const res = await apiFetch(`/api/posts/${postId}`, { method: "DELETE" });
+        if (res?.ok) {
+          set({ dialogId: null });
+          await get().refreshPosts();
+          get().notify("Draft discarded");
+          return true;
+        }
+        if (res) get().notify((await res.json().catch(() => ({}))).error ?? "Could not discard");
+        return false;
+      },
+
       setCalView: (v) => set({ calView: v }),
       setLens: (l) => set({ lens: l }),
       openDialog: (id) => set({ dialogId: id }),
@@ -290,6 +389,14 @@ export function useStoreHydration() {
     return unsub;
   }, []);
   return hydrated;
+}
+
+/** Build a category→color resolver from the operator's live categories, with
+ * the seeded defaults as fallback. Pass the result to `postColor` so renamed /
+ * recolored / deleted categories render correctly on the calendar and cards. */
+export function categoryColorResolver(categories: CategoryDef[]): (name: string) => string {
+  const live = new Map(categories.map((c) => [c.name, c.color]));
+  return (name: string) => live.get(name) ?? CATEGORY_COLORS[name] ?? CATEGORY_FALLBACK_COLOR;
 }
 
 /** Selected accounts that map to a composer-supported platform and are connected. */

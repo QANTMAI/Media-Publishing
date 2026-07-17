@@ -29,13 +29,18 @@ export interface SocialAccount {
   label?: string | null;
 }
 
-export type Category =
-  | "Promo"
-  | "Educational"
-  | "Behind the scenes"
-  | "Tutorial"
-  | "Trend"
-  | "News";
+/** A content category is now editable operator data, so its name is a free
+ * string (validated server-side), not a fixed union. */
+export type Category = string;
+
+/** One operator-defined content category, as served by GET /api/categories. */
+export interface CategoryDef {
+  id: string;
+  name: string;
+  color: string;
+  hashtags: string[];
+  sortOrder: number;
+}
 
 export type PostStatus = "draft" | "scheduled" | "publishing" | "published" | "failed";
 

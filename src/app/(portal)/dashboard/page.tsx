@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Sparkles } from "lucide-react";
-import { usePortal } from "@/lib/store";
+import { usePortal, categoryColorResolver } from "@/lib/store";
 import { postColor } from "@/lib/platforms";
 import { AnalyticsSection } from "@/components/AnalyticsSection";
 
@@ -23,8 +23,11 @@ interface MetricTotals {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { posts, accounts, lens, openDialog, autopilot, toggleAutopilot } = usePortal();
+  const { posts, accounts, categories, lens, openDialog, autopilot, toggleAutopilot, approveDraft, discardDraft } =
+    usePortal();
+  const colorFor = categoryColorResolver(categories);
   const [now] = useState(() => Date.now());
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [totals, setTotals] = useState<MetricTotals | null>(null);
 
   useEffect(() => {
@@ -163,9 +166,27 @@ export default function DashboardPage() {
       {/* ── Review inbox + Upcoming ── */}
       <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 24, marginBottom: 24 }}>
         <div>
-          <p className="kick" style={{ color: "var(--color-accent)" }}>
-            Needs your review
-          </p>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
+            <p className="kick" style={{ color: "var(--color-accent)" }}>
+              Needs your review{reviewDrafts.length > 0 ? ` · ${reviewDrafts.length}` : ""}
+            </p>
+            {reviewDrafts.length > 1 && (
+              <button
+                className="btn btn-ghost"
+                disabled={bulkBusy}
+                onClick={async () => {
+                  setBulkBusy(true);
+                  // Sequential, not parallel — each approval schedules real
+                  // jobs; a burst of concurrent writes isn't worth the risk.
+                  for (const p of reviewDrafts) await approveDraft(p.postId);
+                  setBulkBusy(false);
+                }}
+                style={{ fontSize: 12, padding: "4px 10px" }}
+              >
+                {bulkBusy ? "Approving…" : "Approve all"}
+              </button>
+            )}
+          </div>
           {reviewDrafts.length === 0 ? (
             <div
               style={{
@@ -189,13 +210,42 @@ export default function DashboardPage() {
           ) : (
             <div className="stack">
               {reviewDrafts.map((p) => (
-                <div key={p.id} style={{ padding: "14px 18px", display: "flex", alignItems: "center", gap: 12 }}>
-                  <span className="dot" style={{ width: 10, height: 10, background: postColor(p, lens) }} />
+                <div key={p.id} style={{ padding: "12px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+                  <span className="dot" style={{ width: 10, height: 10, background: postColor(p, lens, colorFor) }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {p.caption}
                     </div>
-                    <div style={{ fontSize: 11, color: "var(--color-neutral-600)" }}>{p.account.name}</div>
+                    <div style={{ fontSize: 11, color: "var(--color-neutral-600)" }}>
+                      {p.account.name} · {p.category}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, flex: "none" }}>
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => approveDraft(p.postId)}
+                      disabled={bulkBusy}
+                      style={{ fontSize: 12, padding: "5px 10px" }}
+                    >
+                      Approve
+                    </button>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => openDialog(p.id)}
+                      disabled={bulkBusy}
+                      style={{ fontSize: 12, padding: "5px 10px" }}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      className="btn btn-ghost"
+                      onClick={() => discardDraft(p.postId)}
+                      disabled={bulkBusy}
+                      aria-label="Discard draft"
+                      style={{ fontSize: 12, padding: "5px 10px" }}
+                    >
+                      Discard
+                    </button>
                   </div>
                 </div>
               ))}
@@ -212,7 +262,7 @@ export default function DashboardPage() {
             )}
             {upcoming.map((p) => (
               <button key={p.id} className="chip" onClick={() => openDialog(p.id)}>
-                <span className="dot" style={{ width: 10, height: 10, background: postColor(p, lens) }} />
+                <span className="dot" style={{ width: 10, height: 10, background: postColor(p, lens, colorFor) }} />
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <span style={{ fontWeight: 600, fontSize: 13, display: "block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                     {p.caption}

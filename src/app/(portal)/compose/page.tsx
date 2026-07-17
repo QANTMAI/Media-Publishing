@@ -2,14 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
-import { Check, ChevronDown, Heart, MessageCircle, Share, Sparkles, X as XIcon } from "lucide-react";
+import { Check, ChevronDown, Heart, MessageCircle, Plus, Share, Sparkles, X as XIcon } from "lucide-react";
 import { usePortal, selectableAccounts } from "@/lib/store";
 import { uploadAsset, type UploadedAsset } from "@/lib/upload";
 import {
   BRAND_HASHTAGS,
-  CATEGORIES,
   COMPOSER_PLATFORMS,
-  HASHTAG_SUGGESTIONS,
   MARK_TO_PLATFORM,
   PLATFORM_COLORS,
   PLATFORM_RULES,
@@ -25,6 +23,7 @@ export default function ComposePage() {
   const [uploading, setUploading] = useState(false);
   const [acctMenu, setAcctMenu] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [newCat, setNewCat] = useState<string | null>(null); // inline ＋New name, null = closed
 
   const attachFile = async (file: File | undefined) => {
     if (!file) return;
@@ -60,9 +59,22 @@ export default function ComposePage() {
     ? { color: "var(--color-accent-2-700)", fontWeight: 600 }
     : { color: "var(--color-neutral-600)" };
 
-  const hashtags = [...(HASHTAG_SUGGESTIONS[s.category] ?? []), ...BRAND_HASHTAGS]
+  const categoryNames = s.categories.map((c) => c.name);
+  const activeCat = s.categories.find((c) => c.name === s.category);
+  const hashtags = [...(activeCat?.hashtags ?? []), ...BRAND_HASHTAGS]
     .filter((t, i, a) => a.indexOf(t) === i)
     .slice(0, 8);
+
+  const addCategory = async () => {
+    const name = newCat?.trim();
+    if (!name) {
+      setNewCat(null);
+      return;
+    }
+    const ok = await s.createCategory(name);
+    if (ok) s.setComposer({ category: name });
+    setNewCat(null);
+  };
 
   const accountGroups = COMPOSER_PLATFORMS.map((pid) => ({
     rules: PLATFORM_RULES[pid],
@@ -593,16 +605,54 @@ export default function ComposePage() {
           <div style={{ display: "flex", gap: 12, alignItems: "end" }}>
             <div className="field" style={{ flex: 1 }}>
               <label htmlFor="category">Category</label>
-              <select
-                id="category"
-                className="input"
-                value={s.category}
-                onChange={(e) => s.setComposer({ category: e.target.value as typeof s.category })}
-              >
-                {CATEGORIES.map((c) => (
-                  <option key={c}>{c}</option>
-                ))}
-              </select>
+              {newCat === null ? (
+                <div style={{ display: "flex", gap: 6 }}>
+                  <select
+                    id="category"
+                    className="input"
+                    value={categoryNames.includes(s.category) ? s.category : ""}
+                    onChange={(e) => s.setComposer({ category: e.target.value })}
+                    style={{ flex: 1 }}
+                  >
+                    {!categoryNames.includes(s.category) && <option value="">{s.category || "Select…"}</option>}
+                    {s.categories.map((c) => (
+                      <option key={c.id} value={c.name}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    className="btn btn-ghost"
+                    onClick={() => setNewCat("")}
+                    title="Add a category"
+                    aria-label="Add a category"
+                    style={{ flex: "none", padding: "0 10px" }}
+                  >
+                    <Plus size={15} /> New
+                  </button>
+                </div>
+              ) : (
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input
+                    className="input"
+                    autoFocus
+                    value={newCat}
+                    placeholder="New category name"
+                    onChange={(e) => setNewCat(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") addCategory();
+                      if (e.key === "Escape") setNewCat(null);
+                    }}
+                    style={{ flex: 1 }}
+                  />
+                  <button className="btn btn-primary" onClick={addCategory} style={{ flex: "none", padding: "0 12px" }}>
+                    Add
+                  </button>
+                  <button className="btn btn-ghost" onClick={() => setNewCat(null)} style={{ flex: "none", padding: "0 10px" }}>
+                    Cancel
+                  </button>
+                </div>
+              )}
             </div>
             <button
               className="btn btn-secondary"

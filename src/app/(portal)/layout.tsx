@@ -23,7 +23,7 @@ const NAV = [
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { killOn, toggleKill, autopilot, toggleAutopilot, setAccounts, refreshPosts, refreshSettings } =
+  const { killOn, toggleKill, autopilot, toggleAutopilot, setAccounts, refreshPosts, refreshSettings, refreshCategories } =
     usePortal();
   const hydrated = useStoreHydration();
   const [authed, setAuthed] = useState(false);
@@ -39,6 +39,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         if (!cancelled) setAccounts(data.accounts);
         refreshPosts();
         refreshSettings();
+        refreshCategories();
       } else {
         router.replace("/login");
       }
@@ -46,7 +47,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
     return () => {
       cancelled = true;
     };
-  }, [router, setAccounts, refreshPosts, refreshSettings]);
+  }, [router, setAccounts, refreshPosts, refreshSettings, refreshCategories]);
 
   const signOut = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
