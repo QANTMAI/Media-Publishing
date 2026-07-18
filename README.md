@@ -53,8 +53,8 @@ labeled mock mode so the whole pipeline works before platform app review.
 
 ## Stack
 
-Next.js 15 (App Router) · TypeScript · Prisma (SQLite dev / Postgres prod) ·
-zustand · FullCalendar · jose · otplib · bcryptjs
+Next.js 15 (App Router) · TypeScript · Prisma + SQLite (WAL; Litestream backups
+in prod) · zustand · FullCalendar · jose · otplib · bcryptjs
 
 ## Documentation
 

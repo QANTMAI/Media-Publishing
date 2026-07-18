@@ -6,7 +6,7 @@ Copy `.env.example` to `.env`:
 
 | Variable | Purpose |
 |---|---|
-| `DATABASE_URL` | `file:./dev.db` locally; a Postgres URL in production |
+| `DATABASE_URL` | SQLite file in every environment (`file:./dev.db` locally; a persistent path in prod) |
 | `SESSION_SECRET` | Signs session JWTs — 32 bytes base64 (`openssl rand -base64 32`) |
 | `VAULT_MASTER_KEY` | Encrypts vault secrets — 32 bytes base64; KMS-managed in production |
 | `META_APP_ID` / `META_APP_SECRET` | Meta developer app (Instagram + Facebook + Threads) |
@@ -16,12 +16,21 @@ Copy `.env.example` to `.env`:
 | `STORAGE_DIR` | Private media directory for the local storage adapter |
 | `STORAGE_SIGNING_KEY` | Signs media URLs — 32 bytes base64 |
 | `PUBLIC_ORIGIN` | Public app origin; required for real Instagram media publishing |
+| `SMTP_URL` / `SMTP_FROM` | Optional; set both to enable email notifications (else in-app only) |
+| `AUTH_DEV_BYPASS` | `1` enables the dev-only 2FA bypass (non-production only) |
+
+A config guard (`src/lib/server/config.ts`) validates these at boot and, in
+production, aborts the start on any critical miss (missing vault key, dev
+bypass left on, etc.).
 
 ## Database
 
-Prisma with SQLite for zero-setup local dev. Production switches the
-datasource provider to `postgresql` — the schema is written portably (no
-enums; string state fields validated in the app layer).
+Prisma with SQLite in **every** environment — dev, test, and production
+(single-operator by design). Zero-setup locally; in prod the file lives on a
+persistent volume in WAL mode with Litestream streaming backups (see
+[DEPLOYMENT.md](DEPLOYMENT.md)). WAL is enabled automatically at boot. The
+schema is written portably (no enums; string state fields validated in the app
+layer) so a future move to Postgres stays low-friction.
 
 ```bash
 npx prisma migrate dev      # apply migrations / create db
@@ -117,11 +126,11 @@ After that, restart the server and complete /setup again. Sessions can be
 force-revoked at any time by bumping the epoch:
 `npx prisma db execute --stdin <<< "UPDATE Setting SET value = CAST((CAST(value AS INTEGER)+1) AS TEXT) WHERE key='sessionEpoch';"`
 
-**Backups:** SQLite dev = copy `prisma/dev.db` (+ the `storage/` directory)
-while the server is stopped. Postgres prod = `pg_dump` on a schedule + object
-storage replication. The vault's encrypted tokens are only readable with
-`VAULT_MASTER_KEY` — back the key up separately and securely, or a restored
-database has unreadable credentials.
+**Backups:** dev = copy the SQLite file (+ the `storage/` directory) while the
+server is stopped. Prod = **Litestream** streams the WAL to object storage
+continuously (see [DEPLOYMENT.md](DEPLOYMENT.md)). Either way, the vault's
+encrypted tokens are only readable with `VAULT_MASTER_KEY` — back the key up
+separately and securely, or a restored database has unreadable credentials.
 
 **Disk sizing:** uploads stream to the `storage/` volume (≤512 MB per video,
 25 MB per image; presign is rate-limited to 60/h and byte caps are signed

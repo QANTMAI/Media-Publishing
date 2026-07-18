@@ -921,3 +921,57 @@ test("feeds: real RSS/Atom parsing, SSRF guard, and enabled-source listing", asy
   assert.equal((await api(`/api/feeds/nope`, { method: "DELETE" })).status, 404);
   assert.equal(await db.feedItem.count({ where: { sourceId: src.id } }), 0, "items cascade-deleted");
 });
+
+test("production hardening: config guard, WAL mode, and health probe", async () => {
+  const { checkConfig } = await import("../src/lib/server/config");
+  const b64_32 = Buffer.alloc(32).toString("base64");
+  const okProd = {
+    NODE_ENV: "production",
+    SESSION_SECRET: "s".repeat(40),
+    VAULT_MASTER_KEY: b64_32,
+    STORAGE_SIGNING_KEY: Buffer.alloc(48).toString("base64"),
+    DATABASE_URL: "file:/data/prod.db",
+    PUBLIC_ORIGIN: "https://portal.example.com",
+    OAUTH_MOCK: "1",
+  };
+
+  // A well-formed production (mock) config has no errors.
+  assert.deepEqual(checkConfig(okProd).errors, []);
+
+  // Missing critical secrets are ERRORS in production.
+  const bare = checkConfig({ NODE_ENV: "production" });
+  for (const re of [/SESSION_SECRET/, /VAULT_MASTER_KEY/, /STORAGE_SIGNING_KEY/, /PUBLIC_ORIGIN/]) {
+    assert.ok(bare.errors.some((e: string) => re.test(e)), `expected prod error ${re}`);
+  }
+
+  // Dev auth-bypass left on in prod is a hard error.
+  assert.ok(checkConfig({ ...okProd, AUTH_DEV_BYPASS: "1" }).errors.some((e: string) => /AUTH_DEV_BYPASS/.test(e)));
+
+  // Weak values are caught.
+  assert.ok(checkConfig({ ...okProd, VAULT_MASTER_KEY: Buffer.alloc(16).toString("base64") }).errors.some((e: string) => /VAULT_MASTER_KEY must be exactly 32/.test(e)));
+  assert.ok(checkConfig({ ...okProd, PUBLIC_ORIGIN: "http://insecure" }).errors.some((e: string) => /PUBLIC_ORIGIN must be an https/.test(e)));
+
+  // Real OAuth mode requires Meta credentials.
+  assert.ok(checkConfig({ ...okProd, OAUTH_MOCK: "0" }).errors.some((e: string) => /META_APP_ID/.test(e)));
+
+  // Development is lenient: missing SECRETS are warnings, not errors (only a
+  // truly absent DATABASE_URL is fatal, so provide it here).
+  const dev = checkConfig({ NODE_ENV: "development", DATABASE_URL: "file:./dev.db" });
+  assert.equal(dev.errors.length, 0, "dev never blocks the boot on missing secrets");
+  assert.ok(dev.warnings.some((w: string) => /SESSION_SECRET|VAULT_MASTER_KEY/.test(w)));
+  // DATABASE_URL is required even in dev.
+  assert.ok(checkConfig({ NODE_ENV: "development" }).errors.some((e: string) => /DATABASE_URL/.test(e)));
+
+  // SQLite is in WAL mode (set at boot; required for Litestream + concurrency).
+  const jm = (await db.$queryRawUnsafe("PRAGMA journal_mode")) as Array<{ journal_mode: string }>;
+  assert.equal(jm[0].journal_mode.toLowerCase(), "wal", "database runs in WAL mode");
+
+  // Health probe is unauthenticated, secret-free, and reports DB reachability.
+  const health = await fetch(`${BASE}/api/health`);
+  assert.equal(health.status, 200);
+  const hb = await health.json();
+  assert.equal(hb.status, "ok");
+  assert.equal(hb.db, true);
+  assert.ok(["mock", "live"].includes(hb.publishing));
+  assert.equal(typeof hb.email, "boolean");
+});

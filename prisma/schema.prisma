@@ -1,7 +1,8 @@
 // QANTM Media Portal — data model (Build Plan §07).
-// Dev runs on SQLite (zero-setup); production switches provider to
-// "postgresql" + DATABASE_URL. Kept portable: no enums (SQLite), string
-// status fields validated at the app layer.
+// SQLite runs in every environment (dev, test, prod) for a single-operator
+// deployment — WAL mode + Litestream give durability (see docs/DEPLOYMENT.md).
+// Kept portable anyway: no enums, string status fields validated at the app
+// layer, so a future move to Postgres stays low-friction.
 
 generator client {
   provider = "prisma-client-js"

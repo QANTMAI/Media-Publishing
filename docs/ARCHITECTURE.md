@@ -125,5 +125,5 @@ mock permalinks. Real Instagram publishing additionally needs
    publishes get none). It activates with real tokens; X/LinkedIn/YouTube
    metrics land with their integrations.
 4. AI content studio (bring-your-own-key) and the optimizer/growth engine.
-5. Production hardening: Postgres, KMS, S3 storage adapter, automated
-   backups, observability, pen test.
+5. Production hardening: SQLite WAL + Litestream backups, KMS-managed vault
+   key, S3 storage adapter, observability, pen test.
