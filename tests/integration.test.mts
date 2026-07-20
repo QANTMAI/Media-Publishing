@@ -172,13 +172,17 @@ test("GET /api/posts returns targets with account joins", async () => {
   assert.equal(created.status, 201);
   const { postId } = await created.json();
 
-  const res = await api("/api/posts");
-  assert.equal(res.status, 200);
-  const { targets } = await res.json();
-  assert.ok(Array.isArray(targets) && targets.length > 0, "expected at least the post just created");
-  const t = targets.find((x: { postId: string }) => x.postId === postId) ?? targets[0];
-  assert.ok(t.id && t.caption && t.account?.mark, "target shape");
-  await db.post.delete({ where: { id: postId } });
+  try {
+    const res = await api("/api/posts");
+    assert.equal(res.status, 200);
+    const { targets } = await res.json();
+    assert.ok(Array.isArray(targets) && targets.length > 0, "expected at least the post just created");
+    const t = targets.find((x: { postId: string }) => x.postId === postId) ?? targets[0];
+    assert.ok(t.id && t.caption && t.account?.mark, "target shape");
+  } finally {
+    // Cleanup must survive assertion failures, or reruns accumulate posts.
+    await db.post.delete({ where: { id: postId } }).catch(() => {});
+  }
 });
 
 test("schedule validation: past time, empty caption, over-limit caption", async () => {
