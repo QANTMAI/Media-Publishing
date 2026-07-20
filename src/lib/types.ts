@@ -27,6 +27,8 @@ export interface SocialAccount {
   handle: string;
   status: AccountStatus;
   label?: string | null;
+  /** How many post targets reference this account (drives the Remove confirm). */
+  postCount?: number;
 }
 
 /** A content category is now editable operator data, so its name is a free

@@ -56,6 +56,48 @@ before(async () => {
   assert.ok(user?.totpSecret, "operator account must exist (run first-run setup)");
   userId = user.id;
 
+  // Self-provision the account fixtures the tests use, so the suite stays
+  // green even after the operator Removes all seeded/mock accounts in the UI.
+  // Upserts by (platform, externalId) — no duplicates, no dependence on seeds.
+  const { storeSecret } = await import("../src/lib/server/vault");
+  const igFixture = await db.socialAccount.findUnique({
+    where: { platform_externalId: { platform: "instagram", externalId: "fixture_ig" } },
+  });
+  const anyMockIg = await db.socialAccount.findFirst({
+    where: { platform: "instagram", status: "connected", tokenRef: { not: null } },
+  });
+  if (!anyMockIg) {
+    const tokenRef = igFixture?.tokenRef ?? (await storeSecret("mock-token-fixture_ig"));
+    await db.socialAccount.upsert({
+      where: { platform_externalId: { platform: "instagram", externalId: "fixture_ig" } },
+      update: { status: "connected", tokenRef },
+      create: {
+        userId, platform: "instagram", externalId: "fixture_ig", name: "Instagram",
+        mark: "IG", handle: "@fixture.test", label: "test fixture", status: "connected", tokenRef,
+      },
+    });
+  }
+  const anyYt = await db.socialAccount.findFirst({ where: { platform: "youtube" } });
+  if (!anyYt) {
+    // No token on purpose: tests use it for the honest permanent-failure path.
+    await db.socialAccount.create({
+      data: {
+        userId, platform: "youtube", externalId: "fixture_yt", name: "YouTube",
+        mark: "YT", handle: "Fixture Channel", label: "test fixture", status: "connected",
+      },
+    });
+  }
+  const anyX = await db.socialAccount.findFirst({ where: { platform: "x", status: "connected" } });
+  if (!anyX) {
+    // No token on purpose: used for composer validation (280-char limit).
+    await db.socialAccount.create({
+      data: {
+        userId, platform: "x", externalId: "fixture_x", name: "X",
+        mark: "X", handle: "@fixture_x", label: "test fixture", status: "connected",
+      },
+    });
+  }
+
   // Real sign-in: wrong password rejected, right password + TOTP accepted.
   const bad = await api("/api/auth/login", {
     method: "POST",
@@ -117,13 +159,24 @@ test("unauthenticated requests are rejected", async () => {
   assert.equal(anon2.status, 401);
 });
 
-test("GET /api/posts returns seeded targets with account joins", async () => {
+test("GET /api/posts returns targets with account joins", async () => {
+  // Self-sufficient: create a post through the API, then assert the listing
+  // shape includes it (no dependence on seeded demo data).
+  const ig = await db.socialAccount.findFirst({ where: { platform: "instagram", status: "connected" } });
+  const created = await api("/api/posts", {
+    method: "POST",
+    body: JSON.stringify({ baseCaption: "listing shape test", accountIds: [ig!.id], date: "2030-03-01", time: "10:00", tz: "UTC" }),
+  });
+  assert.equal(created.status, 201);
+  const { postId } = await created.json();
+
   const res = await api("/api/posts");
   assert.equal(res.status, 200);
   const { targets } = await res.json();
-  assert.ok(Array.isArray(targets) && targets.length > 0, "expected seeded posts");
-  const t = targets[0];
+  assert.ok(Array.isArray(targets) && targets.length > 0, "expected at least the post just created");
+  const t = targets.find((x: { postId: string }) => x.postId === postId) ?? targets[0];
   assert.ok(t.id && t.caption && t.account?.mark, "target shape");
+  await db.post.delete({ where: { id: postId } });
 });
 
 test("schedule validation: past time, empty caption, over-limit caption", async () => {
@@ -974,4 +1027,57 @@ test("production hardening: config guard, WAL mode, and health probe", async () 
   assert.equal(hb.db, true);
   assert.ok(["mock", "live"].includes(hb.publishing));
   assert.equal(typeof hb.email, "boolean");
+});
+
+test("Remove account: purge deletes row, cascades posts, sweeps orphans, wipes vault token", async () => {
+  const { storeSecret } = await import("../src/lib/server/vault");
+
+  // Idempotency: clear residue from any earlier (failed) run first.
+  for (const platform of ["pinterest", "tiktok"]) {
+    const stale = await db.socialAccount.findUnique({
+      where: { platform_externalId: { platform, externalId: "purge_test_1" } },
+    });
+    if (stale) {
+      await db.socialAccount.delete({ where: { id: stale.id } });
+      await db.post.deleteMany({ where: { userId, targets: { none: {} } } });
+    }
+  }
+
+  // Build a disposable account with a vault token and one scheduled post.
+  // Platform must be composer-supported (MARK_TO_PLATFORM) or POST /api/posts
+  // rightly rejects the target with 422 — TikTok is supported.
+  const tokenRef = await storeSecret("mock-token-purge_test");
+  const acct = await db.socialAccount.create({
+    data: {
+      userId, platform: "tiktok", externalId: "purge_test_1", name: "TikTok",
+      mark: "TT", handle: "@purge-test", label: "test fixture", status: "connected", tokenRef,
+    },
+  });
+  const created = await api("/api/posts", {
+    method: "POST",
+    body: JSON.stringify({ baseCaption: "purge cascade test", accountIds: [acct.id], date: "2030-04-01", time: "10:00", tz: "UTC" }),
+  });
+  assert.equal(created.status, 201);
+  const { postId } = await created.json();
+
+  // Plain DELETE (no purge) must still only disconnect — row survives.
+  const disc = await api(`/api/accounts/${acct.id}`, { method: "DELETE" });
+  assert.equal(disc.status, 200);
+  assert.ok(await db.socialAccount.findUnique({ where: { id: acct.id } }), "disconnect keeps the row");
+
+  // Purge: row gone, targets cascaded, orphaned post swept, vault secret gone.
+  const purge = await api(`/api/accounts/${acct.id}?purge=1`, { method: "DELETE" });
+  assert.equal(purge.status, 200);
+  const body = await purge.json();
+  assert.equal(body.removed, true);
+  assert.equal(body.removedTargets, 1);
+  assert.equal(body.removedPosts, 1, "orphaned post swept with the account");
+  assert.equal(await db.socialAccount.findUnique({ where: { id: acct.id } }), null, "row deleted");
+  assert.equal(await db.post.findUnique({ where: { id: postId } }), null, "post gone");
+  assert.equal(await db.vaultSecret.findUnique({ where: { id: tokenRef } }), null, "vault token wiped");
+
+  // Purging a nonexistent id 404s; the audit trail recorded the removal.
+  assert.equal((await api(`/api/accounts/${acct.id}?purge=1`, { method: "DELETE" })).status, 404);
+  const auditRow = await db.auditEvent.findFirst({ where: { action: "account.remove" }, orderBy: { createdAt: "desc" } });
+  assert.ok(auditRow && (auditRow.metadata ?? "").includes("purge-test"), "account.remove audited");
 });

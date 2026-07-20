@@ -32,12 +32,16 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 }
 
 /** DELETE /api/accounts/:id — disconnect: revoke platform-side (best effort),
- * delete the vault token, mark disconnected. */
+ * delete the vault token, mark disconnected.
+ * With ?purge=1 — REMOVE: disconnect as above, then delete the account row
+ * entirely. Its post targets cascade away, and posts left with no targets are
+ * cleaned up too. Irreversible; the UI confirms with exact counts first. */
 export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const userId = await readSession();
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await ctx.params;
+  const purge = new URL(req.url).searchParams.get("purge") === "1";
   const account = await db.socialAccount.findFirst({ where: { id, userId } });
   if (!account) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -66,6 +70,19 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }
     // Must clear the FK before the vault row can go.
     await db.socialAccount.update({ where: { id }, data: { tokenRef: null } });
     await deleteSecret(account.tokenRef);
+  }
+
+  if (purge) {
+    // Row + targets (cascade) go together; then sweep posts orphaned by it.
+    const removedTargets = await db.postTarget.count({ where: { socialAccountId: id } });
+    await db.socialAccount.delete({ where: { id } });
+    const orphans = await db.post.deleteMany({ where: { userId, targets: { none: {} } } });
+    await audit("account.remove", {
+      userId,
+      ip: requestIp(req),
+      metadata: { account: account.handle, platform: account.platform, removedTargets, removedPosts: orphans.count },
+    });
+    return NextResponse.json({ removed: true, removedTargets, removedPosts: orphans.count });
   }
 
   const updated = await db.socialAccount.update({

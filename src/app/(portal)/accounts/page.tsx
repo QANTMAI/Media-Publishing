@@ -50,6 +50,8 @@ export default function AccountsPage() {
   const [loaded, setLoaded] = useState(false);
   const [oauthAccount, setOauthAccount] = useState<SocialAccount | null>(null);
   const [redirecting, setRedirecting] = useState(false);
+  const [removeAcct, setRemoveAcct] = useState<SocialAccount | null>(null);
+  const [removing, setRemoving] = useState(false);
 
   const refresh = async () => {
     const res = await fetch("/api/accounts");
@@ -104,6 +106,25 @@ export default function AccountsPage() {
     refresh();
   };
 
+  /** Remove = irreversible purge (row + its posts). Confirmed via dialog. */
+  const removeConfirmed = async () => {
+    const a = removeAcct;
+    if (!a) return;
+    setRemoving(true);
+    const res = await fetch(`/api/accounts/${a.id}?purge=1`, { method: "DELETE" });
+    setRemoving(false);
+    setRemoveAcct(null);
+    if (res.ok) {
+      const d = await res.json();
+      notify(
+        `${a.handle} removed${d.removedTargets ? ` · ${d.removedTargets} post${d.removedTargets === 1 ? "" : "s"} deleted` : ""}`,
+      );
+    } else {
+      notify("Remove failed");
+    }
+    refresh();
+  };
+
   // Connect/Reconnect open the consent modal first (shows scopes), then the
   // real OAuth redirect happens on Authorize.
   const connect = (a: SocialAccount) => setOauthAccount(a);
@@ -123,23 +144,29 @@ export default function AccountsPage() {
 
   const actionsFor = (a: SocialAccount) => {
     const disconnectAction = { label: "Disconnect", cls: "btn btn-ghost", on: () => disconnect(a) };
+    // Remove is available on EVERY row — it's the only way to delete an
+    // account (and its posts) from the portal entirely.
+    const removeAction = { label: "Remove", cls: "btn btn-ghost", on: () => setRemoveAcct(a) };
     switch (a.status) {
       case "disconnected":
-        return [{ label: "Connect", cls: "btn btn-primary", on: () => connect(a) }];
+        return [{ label: "Connect", cls: "btn btn-primary", on: () => connect(a) }, removeAction];
       case "paused":
         return [
           { label: "Resume", cls: "btn btn-secondary", on: () => patchStatus(a, "connected", `${a.name} resumed`) },
           disconnectAction,
+          removeAction,
         ];
       case "expiring":
         return [
           { label: "Reconnect", cls: "btn btn-primary", on: () => connect(a) },
           disconnectAction,
+          removeAction,
         ];
       default:
         return [
           { label: "Pause", cls: "btn btn-secondary", on: () => patchStatus(a, "paused", `${a.name} paused — posts held`) },
           disconnectAction,
+          removeAction,
         ];
     }
   };
@@ -187,6 +214,54 @@ export default function AccountsPage() {
         Disconnect deletes the stored token from the vault and calls the platform&apos;s revoke
         endpoint, cutting access on both ends.
       </p>
+
+      {/* ── Remove (purge) confirmation ── */}
+      {removeAcct && (
+        <div
+          className="dialog-backdrop"
+          onClick={() => {
+            if (!removing) setRemoveAcct(null);
+          }}
+        >
+          <div className="dialog" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "16px 20px", borderBottom: "2px solid var(--color-text)" }}>
+              <div className="mark">{removeAcct.mark}</div>
+              <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 16 }}>
+                Remove {removeAcct.name}?
+              </div>
+            </div>
+            <div style={{ padding: 20, fontSize: 13.5, color: "var(--color-neutral-800)" }}>
+              <p style={{ margin: "0 0 10px" }}>
+                <strong>{removeAcct.handle}</strong>
+                {removeAcct.label ? ` (${removeAcct.label})` : ""} will be deleted from the portal
+                {removeAcct.postCount ? (
+                  <>
+                    {" "}
+                    <strong style={{ color: "var(--color-accent-2-700)" }}>
+                      along with its {removeAcct.postCount} post{removeAcct.postCount === 1 ? "" : "s"}
+                    </strong>{" "}
+                    (scheduled and published history)
+                  </>
+                ) : (
+                  <> — it has no posts</>
+                )}
+                . Any stored token is wiped from the vault.
+              </p>
+              <p style={{ margin: 0, fontSize: 12.5, color: "var(--color-neutral-600)" }}>
+                This can&apos;t be undone. Posts already live on the platform itself are not affected.
+              </p>
+            </div>
+            <div style={{ display: "flex", gap: 10, padding: "16px 20px", borderTop: "2px solid var(--color-divider)" }}>
+              <button className="btn btn-primary" onClick={removeConfirmed} disabled={removing}>
+                {removing ? "Removing…" : "Remove account"}
+              </button>
+              <button className="btn btn-secondary" onClick={() => setRemoveAcct(null)} disabled={removing}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── OAuth consent modal ── */}
       {oauthAccount && (
