@@ -16,7 +16,7 @@ import { publishTarget, PermanentError } from "./publisher";
 import { killSwitchOn } from "./settings";
 import { audit } from "./audit";
 import { notify } from "./notifications";
-import { sweepOrphanUploads } from "./sweep";
+import { sweepOrphanUploads, sweepOrphanVaultSecrets } from "./sweep";
 import { processNextVideo } from "./video";
 import { collectMetricsCycle } from "./insights";
 import { pollFeeds } from "./feeds";
@@ -197,9 +197,11 @@ export function startWorker() {
     g.__qantmWorkerBusy = true;
     try {
       await runQueueCycle();
-      // Hourly housekeeping: clear uploads that never completed.
+      // Hourly housekeeping: clear uploads that never completed, and vault
+      // ciphertext nothing references anymore.
       if (cycles % 240 === 0) {
         await sweepOrphanUploads().catch((err) => console.error("orphan sweep failed", err));
+        await sweepOrphanVaultSecrets().catch((err) => console.error("vault sweep failed", err));
       }
       // Metrics pulls every 6h (IG insight data lags up to 48h — polling
       // faster buys nothing), first run ~5min after boot.

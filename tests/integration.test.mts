@@ -161,11 +161,13 @@ test("unauthenticated requests are rejected", async () => {
 
 test("GET /api/posts returns targets with account joins", async () => {
   // Self-sufficient: create a post through the API, then assert the listing
-  // shape includes it (no dependence on seeded demo data).
+  // shape includes it (no dependence on seeded demo data). The listing is
+  // windowed (−90d…+365d), so schedule inside it: 7 days from now.
   const ig = await db.socialAccount.findFirst({ where: { platform: "instagram", status: "connected" } });
+  const inWindow = new Date(Date.now() + 7 * 24 * 60 * 60_000).toISOString().slice(0, 10);
   const created = await api("/api/posts", {
     method: "POST",
-    body: JSON.stringify({ baseCaption: "listing shape test", accountIds: [ig!.id], date: "2030-03-01", time: "10:00", tz: "UTC" }),
+    body: JSON.stringify({ baseCaption: "listing shape test", accountIds: [ig!.id], date: inWindow, time: "10:00", tz: "UTC" }),
   });
   assert.equal(created.status, 201);
   const { postId } = await created.json();
@@ -626,7 +628,26 @@ test("metrics: mock publishes get NO snapshots; /api/metrics serves only real ro
   assert.equal(await db.metricSnapshot.count(), before, "no snapshots fabricated for mock publishes");
 
   // The read path, exercised with an explicit test snapshot (cleaned up).
-  const target = await db.postTarget.findFirst({ where: { state: "published" } });
+  // Self-sufficient: if no published target exists (clean DB), create one
+  // through the real pipeline — mock-token publish via a worker cycle.
+  let target = await db.postTarget.findFirst({ where: { state: "published" } });
+  let createdPostId: string | null = null;
+  if (!target) {
+    const ig = await db.socialAccount.findFirst({
+      where: { platform: "instagram", status: "connected", tokenRef: { not: null } },
+    });
+    const created = await api("/api/posts", {
+      method: "POST",
+      body: JSON.stringify({ baseCaption: "metrics fixture post", accountIds: [ig!.id], date: "2030-01-01", time: "10:00", tz: "UTC" }),
+    });
+    assert.equal(created.status, 201);
+    createdPostId = (await created.json()).postId;
+    const t = await db.postTarget.findFirst({ where: { postId: createdPostId! } });
+    await db.publishJob.updateMany({ where: { postTargetId: t!.id }, data: { runAt: new Date(Date.now() - 1000) } });
+    const { runQueueCycle } = await import("../src/lib/server/worker");
+    await runQueueCycle();
+    target = await db.postTarget.findFirst({ where: { id: t!.id, state: "published" } });
+  }
   assert.ok(target, "need a published target");
   const snap = await db.metricSnapshot.create({
     data: {
@@ -651,6 +672,7 @@ test("metrics: mock publishes get NO snapshots; /api/metrics serves only real ro
     assert.equal(d.totals.views >= 1200, true, "totals aggregate");
   } finally {
     await db.metricSnapshot.delete({ where: { id: snap.id } });
+    if (createdPostId) await db.post.delete({ where: { id: createdPostId } }).catch(() => {});
   }
 
   const anon = await fetch(`${BASE}/api/metrics`);
@@ -1080,4 +1102,38 @@ test("Remove account: purge deletes row, cascades posts, sweeps orphans, wipes v
   assert.equal((await api(`/api/accounts/${acct.id}?purge=1`, { method: "DELETE" })).status, 404);
   const auditRow = await db.auditEvent.findFirst({ where: { action: "account.remove" }, orderBy: { createdAt: "desc" } });
   assert.ok(auditRow && (auditRow.metadata ?? "").includes("purge-test"), "account.remove audited");
+});
+
+test("vault sweep: deletes only old unreferenced ciphertext; keeps referenced + recent", async () => {
+  const { storeSecret } = await import("../src/lib/server/vault");
+  const { sweepOrphanVaultSecrets } = await import("../src/lib/server/sweep");
+
+  // Three secrets: an OLD orphan (dead ciphertext), a FRESH orphan (simulates
+  // an in-flight OAuth callback), and one REFERENCED by an account.
+  const oldOrphan = await storeSecret("mock-token-sweep_old");
+  await db.vaultSecret.update({ where: { id: oldOrphan }, data: { createdAt: new Date(Date.now() - 2 * 60 * 60_000) } });
+  const freshOrphan = await storeSecret("mock-token-sweep_fresh");
+  const referenced = await storeSecret("mock-token-sweep_ref");
+  await db.vaultSecret.update({ where: { id: referenced }, data: { createdAt: new Date(Date.now() - 2 * 60 * 60_000) } });
+  const acct = await db.socialAccount.upsert({
+    where: { platform_externalId: { platform: "threads", externalId: "sweep_ref_1" } },
+    update: { tokenRef: referenced },
+    create: {
+      userId, platform: "threads", externalId: "sweep_ref_1", name: "Threads",
+      mark: "TH", handle: "@sweep-ref", label: "test fixture", status: "connected", tokenRef: referenced,
+    },
+  });
+
+  const { deleted } = await sweepOrphanVaultSecrets();
+  assert.ok(deleted >= 1, "swept at least the old orphan");
+  assert.equal(await db.vaultSecret.findUnique({ where: { id: oldOrphan } }), null, "old orphan gone");
+  assert.ok(await db.vaultSecret.findUnique({ where: { id: freshOrphan } }), "fresh orphan survives the grace period");
+  assert.ok(await db.vaultSecret.findUnique({ where: { id: referenced } }), "referenced secret untouched");
+
+  // Cleanup: purge the fixture account via the real endpoint (also removes its
+  // secret), then drop the fresh orphan directly.
+  const purge = await api(`/api/accounts/${acct.id}?purge=1`, { method: "DELETE" });
+  assert.equal(purge.status, 200);
+  assert.equal(await db.vaultSecret.findUnique({ where: { id: referenced } }), null, "purge wiped the referenced secret");
+  await db.vaultSecret.delete({ where: { id: freshOrphan } });
 });

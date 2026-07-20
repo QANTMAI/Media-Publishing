@@ -49,3 +49,19 @@ export async function sweepOrphanUploads(): Promise<{ deleted: number }> {
   if (deleted > 0) console.log(`[sweep] removed ${deleted} orphaned upload file(s)`);
   return { deleted };
 }
+
+/** Vault hygiene: delete VaultSecret rows nothing references. The only
+ * referencer is SocialAccount.tokenRef (Credential stores its ciphertext
+ * inline), so anything unreferenced is dead ciphertext — from a crashed
+ * connect flow or direct test writes. A 1h grace period protects rows created
+ * moments ago by an in-flight OAuth callback that hasn't linked them yet. */
+export async function sweepOrphanVaultSecrets(): Promise<{ deleted: number }> {
+  const keep = (
+    await db.socialAccount.findMany({ where: { tokenRef: { not: null } }, select: { tokenRef: true } })
+  ).map((a) => a.tokenRef as string);
+  const res = await db.vaultSecret.deleteMany({
+    where: { id: { notIn: keep }, createdAt: { lt: new Date(Date.now() - 60 * 60_000) } },
+  });
+  if (res.count > 0) console.log(`[sweep] removed ${res.count} orphaned vault secret(s)`);
+  return { deleted: res.count };
+}
