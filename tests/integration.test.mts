@@ -1030,8 +1030,10 @@ test("production hardening: config guard, WAL mode, and health probe", async () 
   assert.ok(checkConfig({ ...okProd, VAULT_MASTER_KEY: Buffer.alloc(16).toString("base64") }).errors.some((e: string) => /VAULT_MASTER_KEY must be exactly 32/.test(e)));
   assert.ok(checkConfig({ ...okProd, PUBLIC_ORIGIN: "http://insecure" }).errors.some((e: string) => /PUBLIC_ORIGIN must be an https/.test(e)));
 
-  // Real OAuth mode requires Meta credentials.
-  assert.ok(checkConfig({ ...okProd, OAUTH_MOCK: "0" }).errors.some((e: string) => /META_APP_ID/.test(e)));
+  // Real OAuth mode with a fully-absent platform app: loud warning (the
+  // platform falls back to labeled mock connects); PARTIAL config: hard error.
+  assert.ok(checkConfig({ ...okProd, OAUTH_MOCK: "0" }).warnings.some((w: string) => /META_\* is unset/.test(w)));
+  assert.ok(checkConfig({ ...okProd, META_APP_ID: "123" }).errors.some((e: string) => /Meta OAuth is partially configured/.test(e)));
 
   // Development is lenient: missing SECRETS are warnings, not errors (only a
   // truly absent DATABASE_URL is fatal, so provide it here).
@@ -1140,4 +1142,89 @@ test("vault sweep: deletes only old unreferenced ciphertext; keeps referenced + 
   assert.equal(purge.status, 200);
   assert.equal(await db.vaultSecret.findUnique({ where: { id: referenced } }), null, "purge wiped the referenced secret");
   await db.vaultSecret.delete({ where: { id: freshOrphan } });
+});
+
+test("linkedin: little-text escaping, documented post body, error classification", async () => {
+  const { escapeLittleText, buildLinkedInPostBody, classifyLinkedInError } = await import("../src/lib/server/linkedin");
+  const { PermanentError } = await import("../src/lib/server/publisher-errors");
+
+  // Reserved little-format chars are escaped; # stays (real hashtags work).
+  assert.equal(escapeLittleText("Sale (20% off) [today] #deal"), "Sale \\(20% off\\) \\[today\\] #deal");
+  assert.equal(escapeLittleText("a@b {x} <y> *bold* _u_ ~s~ | \\"), "a\\@b \\{x\\} \\<y\\> \\*bold\\* \\_u\\_ \\~s\\~ \\| \\\\");
+  assert.equal(escapeLittleText("plain text #tag stays"), "plain text #tag stays");
+
+  // Exact minimal body per the Posts API doc (li-lms-2026-06).
+  const body = buildLinkedInPostBody("AbC123", "hello (world)");
+  assert.deepEqual(body, {
+    author: "urn:li:person:AbC123",
+    commentary: "hello \\(world\\)",
+    visibility: "PUBLIC",
+    distribution: { feedDistribution: "MAIN_FEED", targetEntities: [], thirdPartyDistributionChannels: [] },
+    lifecycleState: "PUBLISHED",
+    isReshareDisabledByAuthor: false,
+  });
+
+  // Error classification per the documented table.
+  for (const s of [400, 401, 403, 404, 422]) {
+    assert.ok(classifyLinkedInError(s, "x") instanceof PermanentError, `${s} must be permanent`);
+  }
+  for (const s of [409, 429, 500, 503]) {
+    assert.ok(!(classifyLinkedInError(s, "x") instanceof PermanentError), `${s} must be retryable`);
+  }
+  assert.match(classifyLinkedInError(401, "expired").message, /reconnect/i);
+
+  // Config guard: partial LINKEDIN_* is a hard error in production.
+  const { checkConfig } = await import("../src/lib/server/config");
+  const partial = checkConfig({ NODE_ENV: "production", DATABASE_URL: "file:x", LINKEDIN_CLIENT_ID: "abc" });
+  assert.ok(partial.errors.some((e: string) => /LinkedIn OAuth is partially configured/.test(e)));
+});
+
+test("linkedin: mock OAuth connect creates labeled account; queue publishes to labeled mock permalink", async () => {
+  const { runQueueCycle } = await import("../src/lib/server/worker");
+
+  // Start: requires auth, sets the state cookie, and (mock mode) redirects to
+  // the callback carrying the same state.
+  const start = await api("/api/oauth/linkedin/start");
+  assert.ok([302, 307].includes(start.status), `start should redirect, got ${start.status}`);
+  const loc = start.headers.get("location")!;
+  assert.match(loc, /\/api\/oauth\/linkedin\/callback\?mock=1&state=/);
+  const state = new URL(loc, BASE).searchParams.get("state")!;
+
+  // Wrong state must be rejected (CSRF guard) BEFORE consuming the cookie…
+  // (cookie is single-use, so run the real callback first, then test mismatch)
+  const cb = await api(`/api/oauth/linkedin/callback?mock=1&state=${state}`);
+  assert.ok([302, 307].includes(cb.status));
+  assert.match(cb.headers.get("location") ?? "", /accounts\?connected=1/);
+
+  const acct = await db.socialAccount.findUnique({
+    where: { platform_externalId: { platform: "linkedin", externalId: "mock_li_1" } },
+  });
+  assert.ok(acct, "linkedin account row created");
+  assert.equal(acct!.status, "connected");
+  assert.equal(acct!.label, "mock connection", "honestly labeled as mock");
+  assert.equal(acct!.scopes, "openid profile w_member_social", "real scopes recorded");
+  assert.ok(acct!.tokenRef, "token stored in vault");
+
+  // A stale/forged state now fails (no cookie present).
+  const forged = await api(`/api/oauth/linkedin/callback?mock=1&state=deadbeef`);
+  assert.match(forged.headers.get("location") ?? "", /connect_error=State\+mismatch|connect_error=State%20mismatch/);
+
+  // Publish through the REAL queue: mock token → labeled mock permalink.
+  const created = await api("/api/posts", {
+    method: "POST",
+    body: JSON.stringify({ baseCaption: "linkedin mock publish test", accountIds: [acct!.id], date: "2030-01-01", time: "10:00", tz: "UTC" }),
+  });
+  assert.equal(created.status, 201);
+  const { postId } = await created.json();
+  const t = await db.postTarget.findFirst({ where: { postId } });
+  await db.publishJob.updateMany({ where: { postTargetId: t!.id }, data: { runAt: new Date(Date.now() - 1000) } });
+  await runQueueCycle();
+  const after = await db.postTarget.findUnique({ where: { id: t!.id } });
+  assert.equal(after!.state, "published", after!.error ?? "");
+  assert.match(after!.permalink ?? "", /mock\.qantm\.local\/linkedin\//, "labeled mock permalink, never a fake real link");
+
+  // Cleanup: purge via the real endpoint (also wipes the vault token).
+  await db.post.delete({ where: { id: postId } });
+  const purge = await api(`/api/accounts/${acct!.id}?purge=1`, { method: "DELETE" });
+  assert.equal(purge.status, 200);
 });

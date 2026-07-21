@@ -14,6 +14,11 @@ import { db } from "./db";
 import { readSecret } from "./vault";
 import { presignUrl } from "./storage";
 import { validateVideoForPlatform } from "../video-specs";
+import { publishLinkedInPost } from "./linkedin";
+import { PermanentError, type PublishResult } from "./publisher-errors";
+
+// Re-export the shared contracts — the worker and tests import them from here.
+export { PermanentError, type PublishResult } from "./publisher-errors";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 
@@ -27,17 +32,6 @@ function publicMediaUrl(key: string, ttlSeconds: number): string {
     );
   }
   return origin.replace(/\/$/, "") + presignUrl("GET", key, ttlSeconds);
-}
-
-export class PermanentError extends Error {
-  permanent = true as const;
-}
-
-export interface PublishResult {
-  permalink: string;
-  /** Platform-side media/post id — the key for later insights pulls.
-   * Prefixed "mock_" for mock publishes (which never get metrics). */
-  externalMediaId: string | null;
 }
 
 export async function publishTarget(postTargetId: string): Promise<PublishResult> {
@@ -78,6 +72,10 @@ export async function publishTarget(postTargetId: string): Promise<PublishResult
   switch (account.platform) {
     case "facebook":
       return publishFacebookPage(account.externalId, token, caption);
+    case "linkedin":
+      // Text posts via the versioned Posts API (w_member_social). Media posts
+      // need the Images/Videos upload APIs — a follow-up wave.
+      return publishLinkedInPost(account.externalId, token, caption);
     case "instagram": {
       const assetId = target.assetIds?.split(",")[0];
       if (!assetId) {

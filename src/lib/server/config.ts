@@ -57,17 +57,33 @@ export function checkConfig(env: Env = process.env): ConfigReport {
     else if (!env.PUBLIC_ORIGIN.startsWith("https://")) errors.push("PUBLIC_ORIGIN must be an https:// URL in production");
   }
 
-  // ── Meta OAuth: real mode needs real credentials ──
+  // ── Platform OAuth apps. Policy (matches the start routes): a platform
+  // with no credentials falls back to labeled MOCK connects even when
+  // OAUTH_MOCK=0 — so absence is a loud warning, while PARTIAL configuration
+  // is always a hard misconfig. ──
   const mock = env.OAUTH_MOCK === "1";
-  if (mock) {
-    if (isProd) warnings.push("OAUTH_MOCK=1 — publishing runs in MOCK mode; no posts reach real platforms");
-  } else {
-    for (const k of ["META_APP_ID", "META_APP_SECRET", "META_REDIRECT_URI"] as const) {
-      if (!env[k]) require_.push(`${k} is not set (required when OAUTH_MOCK is off)`);
-    }
-    if (env.META_REDIRECT_URI && isProd && !env.META_REDIRECT_URI.startsWith("https://")) {
-      warnings.push("META_REDIRECT_URI should be https:// in production");
-    }
+  if (mock && isProd) warnings.push("OAUTH_MOCK=1 — ALL publishing runs in MOCK mode; no posts reach real platforms");
+
+  const metaKeys = ["META_APP_ID", "META_APP_SECRET", "META_REDIRECT_URI"] as const;
+  const metaSet = metaKeys.filter((k) => env[k]);
+  if (metaSet.length > 0 && metaSet.length < metaKeys.length) {
+    require_.push(`Meta OAuth is partially configured (${metaSet.join(", ")}) — set all of ${metaKeys.join(", ")}, or none`);
+  } else if (!mock && metaSet.length === 0) {
+    warnings.push("OAUTH_MOCK=0 but META_* is unset — Meta connects stay in labeled mock mode");
+  }
+  if (env.META_REDIRECT_URI && isProd && !env.META_REDIRECT_URI.startsWith("https://")) {
+    warnings.push("META_REDIRECT_URI should be https:// in production");
+  }
+
+  // ── LinkedIn OAuth: same all-or-none + mock-fallback policy ──
+  const liKeys = ["LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET", "LINKEDIN_REDIRECT_URI"] as const;
+  const liSet = liKeys.filter((k) => env[k]);
+  if (liSet.length > 0 && liSet.length < liKeys.length) {
+    require_.push(
+      `LinkedIn OAuth is partially configured (${liSet.join(", ")}) — set all of ${liKeys.join(", ")}, or none`,
+    );
+  } else if (!mock && liSet.length === 0) {
+    warnings.push("OAUTH_MOCK=0 but LINKEDIN_* is unset — LinkedIn connects stay in labeled mock mode");
   }
 
   // ── Email (optional): both halves or neither ──

@@ -37,7 +37,8 @@ const OAUTH_SCOPES: Record<string, string[]> = {
   FB: ["Publish posts, photos and video to your Page", "Read Page insights", "Manage Page content"],
   TH: ["Publish posts to your Threads profile", "Read post engagement"],
   X: ["Post on your behalf", "Read your posts and engagement metrics"],
-  IN: ["Create posts as you or your organisation", "Read your basic profile"],
+  // Real scopes requested by /api/oauth/linkedin/start: openid profile w_member_social.
+  IN: ["Post on LinkedIn on your behalf (w_member_social)", "Verify your identity & name (openid, profile)"],
   YT: ["Upload and manage videos", "Set titles, descriptions & thumbnails", "Read channel analytics"],
   TT: ["Publish videos to your account", "Read video performance stats"],
   BS: ["Post on your behalf", "Read your posts"],
@@ -45,10 +46,47 @@ const OAUTH_SCOPES: Record<string, string[]> = {
   GB: ["Post updates to your business profile", "Read post insights"],
 };
 
+/** What the consent modal authorizes — either an existing account row or a
+ * platform-level connect (needed when the list is empty). */
+interface OauthTarget {
+  mark: string;
+  name: string;
+  handle: string;
+  scopes: string[];
+  /** The real OAuth start route; null = integration not built yet. */
+  start: string | null;
+}
+
+/** Platforms connectable today, shown in the "Connect a platform" panel.
+ * Meta discovery creates one row per granted Page/IG account; LinkedIn
+ * creates the member's row. Others arrive wave by wave. */
+const CONNECTABLE = [
+  {
+    mark: "IG",
+    name: "Instagram + Facebook",
+    handle: "via Meta — one grant covers your Pages & IG business accounts",
+    scopes: [...OAUTH_SCOPES.IG, ...OAUTH_SCOPES.FB],
+    start: "/api/oauth/meta/start",
+  },
+  {
+    mark: "IN",
+    name: "LinkedIn",
+    handle: "post to your member profile",
+    scopes: OAUTH_SCOPES.IN,
+    start: "/api/oauth/linkedin/start",
+  },
+] satisfies OauthTarget[];
+
+function startUrlFor(platform: string): string | null {
+  if (META_PLATFORMS.includes(platform)) return "/api/oauth/meta/start";
+  if (platform === "linkedin") return "/api/oauth/linkedin/start";
+  return null;
+}
+
 export default function AccountsPage() {
   const { accounts, setAccounts, notify } = usePortal();
   const [loaded, setLoaded] = useState(false);
-  const [oauthAccount, setOauthAccount] = useState<SocialAccount | null>(null);
+  const [oauthTarget, setOauthTarget] = useState<OauthTarget | null>(null);
   const [redirecting, setRedirecting] = useState(false);
   const [removeAcct, setRemoveAcct] = useState<SocialAccount | null>(null);
   const [removing, setRemoving] = useState(false);
@@ -127,18 +165,25 @@ export default function AccountsPage() {
 
   // Connect/Reconnect open the consent modal first (shows scopes), then the
   // real OAuth redirect happens on Authorize.
-  const connect = (a: SocialAccount) => setOauthAccount(a);
+  const connect = (a: SocialAccount) =>
+    setOauthTarget({
+      mark: a.mark,
+      name: a.name,
+      handle: a.handle,
+      scopes: OAUTH_SCOPES[a.mark] ?? ["Publish on your behalf", "Read engagement metrics"],
+      start: startUrlFor(a.platform),
+    });
 
   const authorize = () => {
-    const a = oauthAccount;
-    if (!a) return;
-    if (META_PLATFORMS.includes(a.platform)) {
+    const t = oauthTarget;
+    if (!t) return;
+    if (t.start) {
       setRedirecting(true);
       // Full-page navigation into the real (or mock) OAuth flow.
-      window.location.assign("/api/oauth/meta/start");
+      window.location.assign(t.start);
     } else {
-      setOauthAccount(null);
-      notify(`${a.name} connect ships with its platform app (Waves 2–3) — Meta first`);
+      setOauthTarget(null);
+      notify(`${t.name} connect ships with its platform app (Waves 2–3) — Meta & LinkedIn first`);
     }
   };
 
@@ -177,7 +222,7 @@ export default function AccountsPage() {
       <div className="stack stack-strong">
         {accounts.length === 0 && (
           <div style={{ padding: "18px", fontSize: 13, color: "var(--color-neutral-600)" }}>
-            {loaded ? "No accounts yet — connecting Meta creates your first rows." : "Loading accounts…"}
+            {loaded ? "No accounts yet — connect a platform below to create your first rows." : "Loading accounts…"}
           </div>
         )}
         {accounts.map((a) => {
@@ -211,8 +256,32 @@ export default function AccountsPage() {
         })}
       </div>
       <p style={{ fontSize: 12, color: "var(--color-neutral-600)", marginTop: 10 }}>
-        Disconnect deletes the stored token from the vault and calls the platform&apos;s revoke
-        endpoint, cutting access on both ends.
+        Disconnect deletes the stored token from the vault, cutting the portal&apos;s access. Where the
+        platform documents a revoke endpoint (Meta) we call it too; elsewhere (LinkedIn) the grant
+        itself expires per the platform&apos;s token lifetime or when you remove the app in its settings.
+      </p>
+
+      {/* ── Connect a platform (works from an empty list) ── */}
+      <p className="kick" style={{ marginTop: 26 }}>
+        Connect a platform
+      </p>
+      <div className="stack stack-strong">
+        {CONNECTABLE.map((p) => (
+          <div key={p.mark} style={{ padding: "14px 18px", display: "flex", alignItems: "center", gap: 14 }}>
+            <div className="mark">{p.mark}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 600, fontSize: 14 }}>{p.name}</div>
+              <div style={{ fontSize: 12, color: "var(--color-neutral-600)" }}>{p.handle}</div>
+            </div>
+            <button className="btn btn-primary" onClick={() => setOauthTarget(p)}>
+              Connect
+            </button>
+          </div>
+        ))}
+      </div>
+      <p style={{ fontSize: 12, color: "var(--color-neutral-600)", marginTop: 10 }}>
+        X, YouTube, TikTok, Threads, Bluesky, Pinterest and Google Business arrive in the next
+        integration waves.
       </p>
 
       {/* ── Remove (purge) confirmation ── */}
@@ -264,43 +333,41 @@ export default function AccountsPage() {
       )}
 
       {/* ── OAuth consent modal ── */}
-      {oauthAccount && (
+      {oauthTarget && (
         <div
           className="dialog-backdrop"
           onClick={() => {
-            if (!redirecting) setOauthAccount(null);
+            if (!redirecting) setOauthTarget(null);
           }}
         >
           <div className="dialog" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "16px 20px", borderBottom: "2px solid var(--color-text)" }}>
-              <div className="mark">{oauthAccount.mark}</div>
+              <div className="mark">{oauthTarget.mark}</div>
               <div>
                 <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 16 }}>
-                  Connect {oauthAccount.name}
+                  Connect {oauthTarget.name}
                 </div>
-                <div style={{ fontSize: 12, color: "var(--color-neutral-600)" }}>{oauthAccount.handle}</div>
+                <div style={{ fontSize: 12, color: "var(--color-neutral-600)" }}>{oauthTarget.handle}</div>
               </div>
             </div>
             <div style={{ padding: 20 }}>
               {redirecting ? (
                 <p style={{ margin: 0, fontSize: 14, color: "var(--color-neutral-700)" }}>
-                  Redirecting to {oauthAccount.name}&apos;s secure sign-in…
+                  Redirecting to {oauthTarget.name}&apos;s secure sign-in…
                 </p>
               ) : (
                 <>
                   <p style={{ margin: "0 0 12px", fontSize: 13, color: "var(--color-neutral-700)" }}>
                     <strong style={{ color: "var(--color-accent-700)" }}>OAuth 2.0</strong> · you sign in on{" "}
-                    {oauthAccount.name}&apos;s own page — your password is never shared with this portal. This
+                    {oauthTarget.name}&apos;s own page — your password is never shared with this portal. This
                     grant will request:
                   </p>
                   <ul style={{ margin: "0 0 4px", paddingLeft: 18, fontSize: 13, color: "var(--color-neutral-800)" }}>
-                    {(OAUTH_SCOPES[oauthAccount.mark] ?? ["Publish on your behalf", "Read engagement metrics"]).map(
-                      (scope) => (
-                        <li key={scope} style={{ marginBottom: 4 }}>
-                          {scope}
-                        </li>
-                      ),
-                    )}
+                    {oauthTarget.scopes.map((scope) => (
+                      <li key={scope} style={{ marginBottom: 4 }}>
+                        {scope}
+                      </li>
+                    ))}
                   </ul>
                   <p style={{ margin: "10px 0 0", fontSize: 12, color: "var(--color-neutral-600)" }}>
                     On approval the token is stored encrypted in the vault — never in your browser.
@@ -310,9 +377,9 @@ export default function AccountsPage() {
             </div>
             <div style={{ display: "flex", gap: 10, padding: "16px 20px", borderTop: "2px solid var(--color-divider)" }}>
               <button className="btn btn-primary" onClick={authorize} disabled={redirecting}>
-                {redirecting ? "Redirecting…" : `Authorize ${oauthAccount.name}`}
+                {redirecting ? "Redirecting…" : `Authorize ${oauthTarget.name}`}
               </button>
-              <button className="btn btn-secondary" onClick={() => setOauthAccount(null)} disabled={redirecting}>
+              <button className="btn btn-secondary" onClick={() => setOauthTarget(null)} disabled={redirecting}>
                 Cancel
               </button>
             </div>
