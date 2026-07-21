@@ -84,7 +84,11 @@ export async function linkedinExchangeCode(code: string): Promise<LinkedInToken>
 }
 
 export interface LinkedInMember {
-  /** OpenID `sub` claim — the member id used in urn:li:person:{sub}. */
+  /** OpenID `sub` claim — the member id used in urn:li:person:{sub}.
+   * NOTE: LinkedIn's subject type is "pairwise" (per the OIDC discovery
+   * document): the same member has a DIFFERENT sub per developer app. If the
+   * developer app is ever recreated, reconnecting yields a new externalId —
+   * a fresh SocialAccount row, not a revival of the old one. */
   sub: string;
   name: string;
 }
