@@ -73,6 +73,7 @@ export async function GET(req: Request) {
       expiresAt,
       tokenRef,
       label: isMock ? "mock connection" : null,
+      provenance: isMock ? "mock" : "real",
     };
     await db.socialAccount.upsert({
       where: { platform_externalId: { platform: "linkedin", externalId } },

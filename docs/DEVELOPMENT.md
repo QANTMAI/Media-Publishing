@@ -11,7 +11,10 @@ Copy `.env.example` to `.env`:
 | `VAULT_MASTER_KEY` | Encrypts vault secrets — 32 bytes base64; KMS-managed in production |
 | `META_APP_ID` / `META_APP_SECRET` | Meta developer app (Instagram + Facebook + Threads) |
 | `META_REDIRECT_URI` | OAuth callback, `<origin>/api/oauth/meta/callback` |
-| `OAUTH_MOCK` | `1` = simulate Meta grants (default until app review clears) |
+| `LINKEDIN_CLIENT_ID` / `LINKEDIN_CLIENT_SECRET` | LinkedIn developer app (all three set together, or none) |
+| `LINKEDIN_REDIRECT_URI` | OAuth callback, `<origin>/api/oauth/linkedin/callback` |
+| `LINKEDIN_API_VERSION` | Optional; overrides the pinned versioned-API month (`YYYYMM`) |
+| `OAUTH_MOCK` | `1` = simulate ALL platform grants (labeled mock); `0` = real where creds exist |
 | `TRUST_PROXY` | `1` only behind a proxy that sets `X-Forwarded-For` (audit IPs) |
 | `STORAGE_DIR` | Private media directory for the local storage adapter |
 | `STORAGE_SIGNING_KEY` | Signs media URLs — 32 bytes base64 |
@@ -37,8 +40,12 @@ npx prisma migrate dev      # apply migrations / create db
 npx prisma studio           # inspect data
 ```
 
-First-run `/setup` seeds demo accounts and posts (labeled `demo`) so every
-screen renders populated before any real connection exists.
+First-run `/setup` seeds sample accounts and posts (`provenance = "demo"`) so
+every screen renders populated before any real connection exists. They're
+plainly flagged in the UI and can be removed anytime from **Accounts → Remove**.
+Provenance (`real` \| `mock` \| `demo`) is a first-class field — see
+[DATA-MAP.md](DATA-MAP.md); the test suite self-provisions its own `mock`
+fixtures, so a fully-purged database still tests green.
 
 ## Testing
 

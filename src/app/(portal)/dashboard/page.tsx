@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Sparkles } from "lucide-react";
 import { usePortal, categoryColorResolver } from "@/lib/store";
 import { postColor } from "@/lib/platforms";
+import { provenanceTag } from "@/lib/taxonomy";
 import { AnalyticsSection } from "@/components/AnalyticsSection";
 
 /* Handoff #2 dashboard: KPI row → Autopilot strip → Review inbox + Upcoming →
@@ -271,7 +272,7 @@ export default function DashboardPage() {
                     {p.account.name} ·{" "}
                     {new Date(p.scheduledAt!).toLocaleDateString(undefined, { month: "short", day: "numeric" })} ·{" "}
                     {new Date(p.scheduledAt!).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false })}
-                    {p.demo ? " · demo" : ""}
+                    {p.provenance !== "real" ? ` · ${provenanceTag(p.provenance)}` : ""}
                   </span>
                 </span>
               </button>

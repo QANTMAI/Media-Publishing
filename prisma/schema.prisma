@@ -154,6 +154,12 @@ model SocialAccount {
   mark       String // short mark, e.g. "IG"
   handle     String // @handle or page/profile label
   label      String? // user-set label to tell same-platform accounts apart
+  // Data provenance — first-class, so honesty is never inferred from the
+  // overloaded user `label`. "real" = a genuine platform grant; "mock" = a
+  // simulated/labeled connection (OAUTH_MOCK, test fixtures); "demo" = seeded
+  // sample rows. Anything != "real" must be visibly flagged in the UI and
+  // never publishes to a real platform. See src/lib/taxonomy.ts.
+  provenance String    @default("real") // real | mock | demo
   scopes     String? // granted OAuth scopes, comma-joined
   status     String    @default("disconnected") // connected | expiring | paused | disconnected
   expiresAt  DateTime?

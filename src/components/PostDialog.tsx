@@ -106,7 +106,11 @@ export function PostDialog() {
             <span className="tag tag-neutral">{post.status}</span>
             <span className="tag tag-outline">{post.account.handle}</span>
             {post.autopilot && <span className="tag tag-outline">autopilot</span>}
-            {post.demo && <span className="tag tag-outline">demo data</span>}
+            {post.provenance !== "real" && (
+              <span className="tag tag-outline">
+                {post.provenance === "demo" ? "demo data" : "mock — not a live post"}
+              </span>
+            )}
           </div>
           {/* Reassign category — recolors the event live on the calendar. */}
           <div className="field" style={{ marginTop: 14 }}>

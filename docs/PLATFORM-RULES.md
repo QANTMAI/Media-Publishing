@@ -1,5 +1,11 @@
 # Platform limits — the system rule
 
+> Part of the taxonomy/legend system — see [DATA-MAP.md](DATA-MAP.md). The
+> **publishable** platform set (which platforms can be scheduled to at all) is
+> owned by `taxonomy.PUBLISHABLE_PLATFORM_IDS`, derived from the `PLATFORM_RULES`
+> below. A platform with no rules entry cannot be scheduled.
+
+
 > **RULE: every platform limit lives in versioned config, and the same config
 > both displays the limit in the UI and enforces it at the API. Hand-written
 > numbers in components or copy are forbidden — if a limit isn't in config,

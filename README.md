@@ -20,10 +20,22 @@ credential vault, a durable publish queue with retries, and a full audit log.
 - **Reliable auto-publishing** — a durable job queue publishes at the
   scheduled time with exponential-backoff retries; failures surface with the
   platform's actual error. A kill switch pauses everything instantly.
-- **Autopilot** — plans a week of scheduled posts across connected accounts
-  in one click; turning it off cleanly removes unpublished planned posts.
-- **Dashboard & analytics** — weekly goal tracking, quick numbers, and
-  plain-English recommendations.
+- **Autopilot** — plans a week of posts across connected accounts; a delivery
+  mode (hold-for-review vs auto-schedule) routes drafts to the review inbox or
+  straight to the calendar. Turning it off cleanly removes unpublished plans.
+- **Real platform integrations** — Meta (Instagram + Facebook) and LinkedIn
+  OAuth + publishing are built against the platforms' current APIs; every
+  other platform runs in clearly-labeled mock mode until its app is configured.
+- **Settings** — Autopilot mode, editable content categories (create / rename /
+  recolor / delete), encrypted API-key vault (Anthropic), RSS **trend sources**,
+  and per-event notification preferences.
+- **Notifications** — an in-app bell driven by real events (publish failures,
+  review-ready drafts), with an optional email mirror.
+- **Trending & breaking** — the composer surfaces items from your own RSS/Atom
+  feeds; "Draft a post" seeds the composer from an item.
+- **Dashboard** — weekly goal tracking and honest metrics: real numbers where a
+  platform is connected, an explicit "connect analytics" state otherwise (never
+  fabricated).
 
 ## Quick start
 
@@ -60,20 +72,30 @@ in prod) · zustand · FullCalendar · jose · otplib · bcryptjs
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — system design: data model,
   publish queue, credential vault, auth flow.
+- [docs/DATA-MAP.md](docs/DATA-MAP.md) — the taxonomy & legend, data sources,
+  signal-ingestion paths, the audit-action registry, and the system rules.
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — environment, database,
   testing, recovery/backups, and platform-integration notes.
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — production checklist: secrets, the
+  SQLite + WAL + Litestream setup, config guard, health probe, security.
 - [docs/PLATFORM-RULES.md](docs/PLATFORM-RULES.md) — every platform limit,
   its verification status, and the single-source-of-truth rule.
 - [docs/VIDEO.md](docs/VIDEO.md) — researched video specs and the encode plan.
 
 ## Status
 
-The UI (all screens), real auth, the encrypted vault, the Meta OAuth connect
-flow, the scheduling/publish pipeline, and the media pipeline (private
-storage with signed URLs, uploads, image variants, asset library, composer
-attachments, Instagram container + Reels flows), the ffmpeg video
-transcode pipeline, and the Meta insights collector (real-response-only
-metric snapshots) are implemented and tested (run `npm test` for the
-current suite). Remaining platform integrations, auto-captions, and
-the AI studio are on the roadmap — see
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#whats-next).
+Implemented and tested (run `npm test`): all UI screens; real auth (mandatory
+TOTP); the encrypted vault; **Meta and LinkedIn** OAuth connect + publishing
+(with labeled mock mode when an app isn't configured); the scheduling/publish
+queue with retries, kill switch, and account removal; the media pipeline
+(private signed-URL storage, uploads, image variants, ffmpeg video transcode,
+IG container + Reels); the Meta insights collector (real-response-only metric
+snapshots); Settings (autopilot mode, categories, encrypted keys, RSS trend
+sources, notification prefs); the notification system; the RSS trending feed;
+and production hardening (boot config guard, SQLite WAL + Litestream, `/api/health`).
+
+Remaining platform integrations (X, YouTube, TikTok, Threads, Bluesky,
+Pinterest, Google Business), auto-captions, and the AI studio are on the
+roadmap — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#whats-next). The
+system's controlled vocabularies and data map are in
+[docs/DATA-MAP.md](docs/DATA-MAP.md).

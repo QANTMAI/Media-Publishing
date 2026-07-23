@@ -70,10 +70,10 @@ before(async () => {
     const tokenRef = igFixture?.tokenRef ?? (await storeSecret("mock-token-fixture_ig"));
     await db.socialAccount.upsert({
       where: { platform_externalId: { platform: "instagram", externalId: "fixture_ig" } },
-      update: { status: "connected", tokenRef },
+      update: { status: "connected", tokenRef, provenance: "mock" },
       create: {
         userId, platform: "instagram", externalId: "fixture_ig", name: "Instagram",
-        mark: "IG", handle: "@fixture.test", label: "test fixture", status: "connected", tokenRef,
+        mark: "IG", handle: "@fixture.test", label: "test fixture", provenance: "mock", status: "connected", tokenRef,
       },
     });
   }
@@ -83,7 +83,7 @@ before(async () => {
     await db.socialAccount.create({
       data: {
         userId, platform: "youtube", externalId: "fixture_yt", name: "YouTube",
-        mark: "YT", handle: "Fixture Channel", label: "test fixture", status: "connected",
+        mark: "YT", handle: "Fixture Channel", label: "test fixture", provenance: "mock", status: "connected",
       },
     });
   }
@@ -93,7 +93,7 @@ before(async () => {
     await db.socialAccount.create({
       data: {
         userId, platform: "x", externalId: "fixture_x", name: "X",
-        mark: "X", handle: "@fixture_x", label: "test fixture", status: "connected",
+        mark: "X", handle: "@fixture_x", label: "test fixture", provenance: "mock", status: "connected",
       },
     });
   }
@@ -1227,4 +1227,31 @@ test("linkedin: mock OAuth connect creates labeled account; queue publishes to l
   await db.post.delete({ where: { id: postId } });
   const purge = await api(`/api/accounts/${acct!.id}?purge=1`, { method: "DELETE" });
   assert.equal(purge.status, 200);
+});
+
+test("provenance: a post to a mock account is flagged mock (not silently 'real')", async () => {
+  // fixture_ig is a mock-connected account (provenance "mock"). Before the
+  // provenance fix, GET /api/posts derived demo from label === "demo", so a
+  // mock connection slipped through unflagged. Now it must report "mock".
+  const ig = await db.socialAccount.findFirst({
+    where: { platform: "instagram", status: "connected", tokenRef: { not: null } },
+  });
+  assert.equal(ig!.provenance, "mock", "fixture account is mock provenance");
+
+  const inWindow = new Date(Date.now() + 5 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+  const created = await api("/api/posts", {
+    method: "POST",
+    body: JSON.stringify({ baseCaption: "provenance flag test", accountIds: [ig!.id], date: inWindow, time: "10:00", tz: "UTC" }),
+  });
+  assert.equal(created.status, 201);
+  const { postId } = await created.json();
+  try {
+    const { targets } = await (await api("/api/posts")).json();
+    const t = targets.find((x: { postId: string }) => x.postId === postId);
+    assert.ok(t, "created post appears in listing");
+    assert.equal(t.provenance, "mock", "mock account post is flagged mock");
+    assert.ok(!("demo" in t) || t.demo === undefined, "legacy demo boolean is gone");
+  } finally {
+    await db.post.delete({ where: { id: postId } }).catch(() => {});
+  }
 });

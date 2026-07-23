@@ -24,7 +24,7 @@ export async function GET() {
     },
     include: {
       post: { select: { id: true, baseCaption: true, category: true, source: true } },
-      account: { select: { id: true, platform: true, name: true, mark: true, handle: true, label: true } },
+      account: { select: { id: true, platform: true, name: true, mark: true, handle: true, provenance: true } },
     },
     orderBy: { scheduledAt: "asc" },
     take: 2000,
@@ -42,7 +42,10 @@ export async function GET() {
       error: t.error,
       assetIds: t.assetIds ? t.assetIds.split(",") : [],
       autopilot: t.post.source === "autopilot",
-      demo: t.account.label === "demo",
+      // First-class provenance — any non-"real" account is flagged in the UI
+      // and never reaches a live platform (was: fragile label === "demo",
+      // which silently missed mock connections).
+      provenance: t.account.provenance,
       account: { id: t.account.id, platform: t.account.platform, name: t.account.name, mark: t.account.mark, handle: t.account.handle },
     })),
   });

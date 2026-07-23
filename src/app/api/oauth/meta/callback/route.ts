@@ -74,6 +74,7 @@ export async function GET(req: Request) {
           expiresAt,
           tokenRef,
           label: isMock ? "mock connection" : null,
+          provenance: isMock ? "mock" : "real",
         };
         const staleTokenRef = existing?.tokenRef ?? null;
         await db.socialAccount.upsert({

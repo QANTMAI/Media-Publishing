@@ -18,6 +18,11 @@ export type PlatformMark =
 
 export type AccountStatus = "connected" | "expiring" | "paused" | "disconnected";
 
+/** Data provenance for an account (and the posts targeting it). First-class,
+ * not inferred from the user-facing `label`. Anything other than "real" is a
+ * simulated/sample connection that never reaches a live platform. */
+export type AccountProvenance = "real" | "mock" | "demo";
+
 /** One connected profile. Many rows may share the same platform. */
 export interface SocialAccount {
   id: string;
@@ -27,6 +32,8 @@ export interface SocialAccount {
   handle: string;
   status: AccountStatus;
   label?: string | null;
+  /** "real" | "mock" | "demo" — see AccountProvenance. */
+  provenance?: AccountProvenance;
   /** How many post targets reference this account (drives the Remove confirm). */
   postCount?: number;
 }
@@ -68,7 +75,13 @@ export interface NotificationView {
   createdAt: string;
 }
 
+/** Aggregate status of a Post (across its targets). */
 export type PostStatus = "draft" | "scheduled" | "publishing" | "published" | "failed";
+
+/** The full PostTarget state machine — a superset of PostStatus that adds the
+ * terminal `cancelled` state. This is what GET /api/posts serves per target,
+ * so the calendar/dashboard must handle all six. */
+export type TargetState = PostStatus | "cancelled";
 
 /** One post target as served by GET /api/posts — the unit the calendar,
  * dashboard, and dialog all render. */
@@ -77,12 +90,14 @@ export interface PostView {
   postId: string;
   caption: string;
   category: Category;
-  status: PostStatus;
+  status: TargetState;
   scheduledAt: string | null; // ISO; null for drafts never scheduled
   permalink: string | null;
   error: string | null;
   autopilot: boolean;
-  demo: boolean; // targets a seeded demo account, not a real connection
+  /** Provenance of the targeted account: "real" reaches a live platform;
+   * "mock"/"demo" never do and must be flagged in the UI. */
+  provenance: AccountProvenance;
   assetIds: string[];
   account: {
     id: string;

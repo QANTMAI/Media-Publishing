@@ -18,6 +18,7 @@ export async function GET() {
       mark: true,
       handle: true,
       label: true,
+      provenance: true,
       status: true,
       expiresAt: true,
       // Post count powers the Remove confirmation ("deletes N posts").

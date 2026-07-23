@@ -20,19 +20,29 @@ library · accounts            account linking,             calls platform APIs,
 
 ## Data model
 
+15 models. The full field-level map and the controlled vocabularies are in
+[DATA-MAP.md](DATA-MAP.md); the entities:
+
 | Entity | Purpose |
 |---|---|
 | `User` | The single operator: bcrypt password hash, TOTP secret, replay-guard step |
-| `SocialAccount` | One connected profile; many rows may share a platform. `tokenRef` → vault |
-| `Post` | Base caption, category, source (`manual` \| `autopilot`) |
-| `PostTarget` | One post × one account: schedule, state machine, permalink, error |
+| `SocialAccount` | One connected profile; many rows may share a platform. `tokenRef` → vault; `provenance` = real \| mock \| demo |
+| `Post` | Base caption, category (name string), source (`manual` \| `autopilot`) |
+| `PostTarget` | One post × one account: schedule, state machine, permalink, `externalMediaId`, error |
 | `PublishJob` | Queue row: `runAt`, attempts, claim marker, completion |
+| `MetricSnapshot` | Append-only insights pull per target — real API responses only |
+| `Asset` | Media metadata + storage keys (bytes live in object storage, never the DB) |
+| `Category` | Editable per-operator content categories (create/rename/recolor/delete) |
+| `Credential` | Operator API keys (e.g. Anthropic), encrypted; returns only a masked hint |
+| `Notification` | Operator notifications from real events; optional email mirror |
+| `FeedSource` / `FeedItem` | Operator RSS/Atom trend sources and their pulled items |
 | `VaultSecret` | Encrypted credential blob (never exposed to the client, never logged) |
-| `AuditEvent` | Login/connect/publish trail |
+| `AuditEvent` | Login/connect/publish/settings trail (43-action registry — DATA-MAP §5) |
 | `Setting` | Operator flags shared with the worker (kill switch, autopilot) |
 
-Target state machine: `draft → scheduled → publishing → published | failed`,
-with `cancel` returning to `draft` (nothing is deleted).
+Target state machine (six states): `draft → scheduled → publishing →
+published | failed`, plus a terminal `cancelled`. Cancelling a scheduled/failed
+target moves it to `cancelled` (history is kept; nothing is deleted).
 
 ## The publish queue
 
@@ -112,10 +122,23 @@ permalink) via the Graph API for real tokens; mock tokens publish to labeled
 mock permalinks. Real Instagram publishing additionally needs
 `PUBLIC_ORIGIN` set so Meta can fetch the signed media URL.
 
+**LinkedIn** (separate developer app, `LINKEDIN_*`): 3-legged OAuth →
+OpenID Connect `userinfo` for the member `sub` → member text posts via the
+**versioned Posts API** (`POST /rest/posts`, `w_member_social`, pinned
+`LinkedIn-Version`). Same mock-mode policy as Meta; each platform goes real
+independently the moment its credentials exist. Every platform's connect flow
+sets account `provenance` so mock and real are never confused. Details and
+the current-doc research citations are in `src/lib/server/linkedin.ts`.
+
 ## What's next
 
-1. Remaining platform integrations in waves: X, LinkedIn, YouTube →
-   TikTok, Pinterest, Google Business → Bluesky.
+**Done since the original plan:** LinkedIn integration (OAuth + versioned Posts
+API), the notification system, categories-as-data, the RSS trending feed,
+account Remove, and production hardening (boot config guard, SQLite WAL +
+Litestream, `/api/health`).
+
+1. Remaining platform integrations in waves: X, YouTube → TikTok, Pinterest,
+   Google Business → Bluesky. (Meta + LinkedIn shipped.)
 2. Rest of video tooling: auto-captions (speech-to-text) and in-browser trim
    (transcodes + Reels publishing are done — docs/VIDEO.md).
 3. Analytics pulls: Meta insights collection is BUILT (researched v25.0
@@ -125,5 +148,8 @@ mock permalinks. Real Instagram publishing additionally needs
    publishes get none). It activates with real tokens; X/LinkedIn/YouTube
    metrics land with their integrations.
 4. AI content studio (bring-your-own-key) and the optimizer/growth engine.
-5. Production hardening: SQLite WAL + Litestream backups, KMS-managed vault
-   key, S3 storage adapter, observability, pen test.
+5. KMS-managed vault key and an S3 storage adapter for multi-instance scale;
+   observability and a pen test before public launch.
+6. External signal consolidation — mapping and merging the operator's
+   Google Cloud / Drive / VM data once those sources are accessible
+   (DATA-MAP §2, §6). Not started; blocked on source access.

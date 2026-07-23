@@ -1,4 +1,4 @@
-import type { Lens, PlatformMark, PlatformRules, PostStatus, PostView } from "./types";
+import type { Lens, PlatformMark, PlatformRules, PostView, TargetState } from "./types";
 import { VIDEO_SPECS } from "./video-specs";
 
 /* ── Platform rules engine (versioned config — Build Plan §03.2) ──
@@ -88,12 +88,16 @@ export const PLATFORM_COLORS: Record<PlatformMark, string> = {
   TT: "#2d2b2b", TH: "#444141", BS: "#9b9797", PN: "#c94b39", GB: "#605d5d",
 };
 
-export const STATUS_COLORS: Record<PostStatus, string> = {
+/** Color per PostTarget state (calendar "status" lens). Covers all six states
+ * of the machine — including the terminal `cancelled` that GET /api/posts can
+ * serve; a missing key here is exactly the drift this closes. */
+export const STATUS_COLORS: Record<TargetState, string> = {
   draft: "#bab6b6",
   scheduled: "#605d5d",
   publishing: "#2f54d1",
   published: "#ae1800",
   failed: "#ec3013",
+  cancelled: "#9b9797",
 };
 
 /** Default category names — fallback list when live categories aren't loaded. */

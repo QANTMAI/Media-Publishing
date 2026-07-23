@@ -26,7 +26,7 @@ export async function seedDemoAccounts(userId: string) {
   for (const a of DEMO_ACCOUNTS) {
     await db.socialAccount.upsert({
       where: { platform_externalId: { platform: a.platform, externalId: a.externalId } },
-      create: { ...a, userId, label: "demo" },
+      create: { ...a, userId, label: "demo", provenance: "demo" },
       update: {},
     });
   }
