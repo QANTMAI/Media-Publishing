@@ -194,6 +194,8 @@ export default function MemoryPage() {
       notify(`Not enough activity to distill yet (${d.evidenceCount} signal${d.evidenceCount === 1 ? "" : "s"}) — publish and act first`);
     } else if (d.reason === "none_valid") {
       notify("Nothing rose above routine activity this pass");
+    } else if (d.reason === "rate_limited") {
+      notify("You're distilling too often — try again in a bit");
     } else if (d.reason === "api_error") {
       notify(`Distillation failed: ${d.status}`);
     } else {

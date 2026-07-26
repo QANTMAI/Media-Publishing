@@ -24,11 +24,20 @@ import { pollFeeds } from "./feeds";
 const POLL_MS = 15_000;
 const MAX_ATTEMPTS = 5;
 const BACKOFF_BASE_MS = 60_000;
+const BACKOFF_CAP_MS = 30 * 60_000; // ceiling so exponential growth can't run away
 const STALE_CLAIM_MS = 10 * 60_000;
 const BATCH = 10;
 
+/** Deterministic exponential backoff, capped. (Jitter is applied separately at
+ * the call site so this stays pure/testable.) */
 export function backoffMs(attempts: number): number {
-  return BACKOFF_BASE_MS * 2 ** Math.max(0, attempts - 1);
+  return Math.min(BACKOFF_CAP_MS, BACKOFF_BASE_MS * 2 ** Math.max(0, attempts - 1));
+}
+
+/** ±10% jitter so a batch of jobs that failed together (e.g. one platform
+ * outage failing many scheduled posts) don't all retry on the same tick. */
+function jitteredBackoffMs(attempts: number): number {
+  return Math.round(backoffMs(attempts) * (0.9 + Math.random() * 0.2));
 }
 
 /** One polling cycle. Exported for tests; the interval loop just calls it. */
@@ -148,7 +157,7 @@ async function recordFailure(jobId: string, postTargetId: string, attempts: numb
           where: { id: jobId },
           data: {
             attempts: nextAttempts,
-            runAt: new Date(now.getTime() + backoffMs(nextAttempts)),
+            runAt: new Date(now.getTime() + jitteredBackoffMs(nextAttempts)),
             claimedAt: null,
             lastError: message,
           },

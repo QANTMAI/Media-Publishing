@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { readSession } from "@/lib/server/session";
 import { distill, distillReadiness } from "@/lib/server/memory-distill";
+import { rateLimited } from "@/lib/server/rate-limit";
+
+// Distillation is a billable Anthropic call on the operator's own key. Cap it so
+// a stuck client / double-click can't run up cost: at most N runs per window.
+const DISTILL_MAX_PER_HOUR = 10;
 
 /** GET /api/memory/distill — readiness for the UI (is the Anthropic key set,
  * how much real activity is available to distill). No model call, no cost. */
@@ -18,6 +23,9 @@ export async function GET() {
 export async function POST() {
   const userId = await readSession();
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (rateLimited(`distill:${userId}`, DISTILL_MAX_PER_HOUR, 60 * 60_000)) {
+    return NextResponse.json({ ok: false, reason: "rate_limited" }, { status: 429 });
+  }
   const result = await distill(userId);
   return NextResponse.json(result);
 }
