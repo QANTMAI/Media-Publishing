@@ -142,6 +142,31 @@ export type NotifyTypeKey = (typeof NOTIFY_TYPE_KEYS)[number];
 export const NOTIFY_LEVELS = ["info", "warn", "error"] as const;
 export type NotifyLevel = (typeof NOTIFY_LEVELS)[number];
 
+// ──────────────────────── Organizational memory lanes ─────────────────────
+// The durable memory lanes ("The Media Channel"). Six named lanes plus the
+// synthesized `distillate`. See docs/MEMORY-PLAN.md.
+export const MEMORY_LANES = [
+  "episodic", // what happened, when (derived from AuditEvent/history)
+  "semantic", // facts, vocabularies, entities
+  "concept", // named ideas — pillars, campaigns, audiences
+  "procedural", // playbooks, workflows, checklists
+  "belief", // stances, policies, guardrails, the hardened rules
+  "eval", // outcomes, scores, judgments (from MetricSnapshot)
+  "distillate", // AI-synthesized learnings — must cite evidence
+] as const;
+export type MemoryLane = (typeof MEMORY_LANES)[number];
+
+export const MEMORY_STATUSES = ["draft", "active", "archived"] as const;
+export type MemoryStatus = (typeof MEMORY_STATUSES)[number];
+
+/** Evidence kinds a MemoryLink can cite (provenance). */
+export const MEMORY_LINK_KINDS = ["audit", "metric", "post", "memory", "doc", "url"] as const;
+export type MemoryLinkKind = (typeof MEMORY_LINK_KINDS)[number];
+
+/** Lanes whose items are *claims* and therefore must cite evidence to go
+ * active (honesty rule — no uncited beliefs or distillates). */
+export const EVIDENCE_REQUIRED_LANES: readonly MemoryLane[] = ["belief", "distillate"];
+
 // ─────────────────────────── Audit action legend ──────────────────────────
 // The complete, grouped legend of audit action strings written across the
 // codebase (every audit("…") call site). This is the documented vocabulary;
@@ -171,6 +196,7 @@ export const AUDIT_ACTIONS = {
   feed: ["feed.add", "feed.toggle", "feed.delete"],
   notify: ["notify.prefs"],
   metrics: ["metrics.collected", "metrics.rate_limited"],
+  memory: ["memory.create", "memory.update", "memory.archive", "memory.link", "memory.seed"],
 } as const;
 
 /** Flat set of every registered audit action. */

@@ -18,6 +18,7 @@ const NAV = [
   { href: "/calendar", label: "Calendar", title: "Content calendar" },
   { href: "/library", label: "Library", title: "Media library" },
   { href: "/accounts", label: "Accounts", title: "Connected accounts" },
+  { href: "/memory", label: "Memory", title: "Organizational memory" },
   { href: "/settings", label: "Settings", title: "Settings" },
 ];
 

@@ -6,6 +6,7 @@ authenticator.options = { window: 1 };
 import { db } from "@/lib/server/db";
 import { audit, requestIp } from "@/lib/server/audit";
 import { seedDemoAccounts } from "@/lib/server/seed-accounts";
+import { seedMemory } from "@/lib/server/seed-memory";
 import { rateLimited } from "@/lib/server/rate-limit";
 
 /** POST /api/auth/setup/confirm — prove the authenticator works before
@@ -27,6 +28,8 @@ export async function POST(req: Request) {
   }
   await db.user.update({ where: { id: user.id }, data: { totpEnabled: true } });
   await seedDemoAccounts(user.id);
+  // Onboard the org memory from the existing rules/workflows (cited).
+  await seedMemory(user.id).catch((err) => console.error("memory seed failed", err));
   await audit("auth.setup.confirmed", { userId: user.id, ip: requestIp(req) });
   return NextResponse.json({ ok: true });
 }

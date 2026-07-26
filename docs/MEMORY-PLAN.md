@@ -127,10 +127,14 @@ MemoryTag                        -- cross-lane linking (platform, category, camp
 ## 7. Phased plan (each phase = its own gate: tests + verify + push)
 
 - **Phase 0 — this document** (audit + plan). ✅
-- **Phase 1 — Substrate (no AI):** `MemoryItem`/`MemoryLink`/`MemoryTag` + FTS5,
-  the `memory.*` audit actions in the registry, CRUD API, a Memory UI surface;
-  Semantic/Concept/Belief/Procedural authored manually; Episodic/Eval derived
-  from existing stores. Fully real, fully testable.
+- **Phase 1 — Substrate (no AI): ✅ SHIPPED.** `MemoryItem`/`MemoryLink` +
+  FTS5 (created at boot, trigger-synced), the `memory.*` audit actions in the
+  registry, `/api/memory` CRUD + `/api/memory/:id/link`, a Memory UI (lane
+  overview, FTS search, cited-evidence display, authoring with the honesty
+  guard surfaced). Beliefs/Procedures/Semantic seeded from the existing rules
+  (cited). Safety guard rejects secret-shaped content; belief/distillate can't
+  go active without evidence. Episodic/Eval *projections* over existing stores
+  land with Phase 2. 68/68 tests.
 - **Phase 2 — Recall & onboarding:** FTS5 search + the onboarding brief
   (template-composed, cited).
 - **Phase 3 — Distillate automation:** AI-proposed, human-approved, evidence-

@@ -1255,3 +1255,79 @@ test("provenance: a post to a mock account is flagged mock (not silently 'real')
     await db.post.delete({ where: { id: postId } }).catch(() => {});
   }
 });
+
+test("memory: honesty guard rejects secret-shaped content", async () => {
+  const { createMemory, MemoryError } = await import("../src/lib/server/memory");
+  for (const bad of ["mock-token-abc123", "Authorization: Bearer abcdefghijklmnop", "here is sk-ABCDEFGHIJKLMNOP1234 key", Buffer.alloc(48).toString("base64")]) {
+    await assert.rejects(() => createMemory(userId, { lane: "belief", title: "secret test", body: bad, links: [{ kind: "doc", ref: "x" }] }), (e: unknown) => e instanceof MemoryError);
+  }
+});
+
+test("memory: belief/distillate must cite evidence to be active", async () => {
+  const { createMemory, MemoryError } = await import("../src/lib/server/memory");
+  await assert.rejects(
+    () => createMemory(userId, { lane: "belief", title: "uncited belief", body: "we believe X" }),
+    (e: unknown) => e instanceof MemoryError,
+    "active belief with no evidence must be refused",
+  );
+  // Draft is allowed without evidence.
+  const draft = await createMemory(userId, { lane: "belief", title: "draft belief zzq", body: "tentative", status: "draft" });
+  assert.equal(draft.status, "draft");
+  // With evidence, active is allowed.
+  const ok = await createMemory(userId, { lane: "distillate", title: "cited distillate zzq", body: "we learned Y", links: [{ kind: "metric", ref: "snap_123" }] });
+  assert.equal(ok.status, "active");
+  assert.equal(ok.links.length, 1);
+  await db.memoryItem.deleteMany({ where: { title: { in: ["draft belief zzq", "cited distillate zzq"] } } });
+});
+
+test("memory: FTS recall finds authored items; supersede archives the prior", async () => {
+  const { createMemory, searchMemory } = await import("../src/lib/server/memory");
+  const a = await createMemory(userId, { lane: "concept", title: "Quokka campaign zzq", body: "our flagship quokka content pillar" });
+  const hits = await searchMemory("quokka");
+  assert.ok(hits.some((h: { id: string }) => h.id === a.id), "FTS finds the item");
+  assert.equal((await searchMemory("nonexistentwordzzq")).length, 0, "no false hits");
+
+  // Supersede archives the prior version (history kept).
+  const b = await createMemory(userId, { lane: "concept", title: "Quokka campaign v2 zzq", body: "refined quokka pillar", supersedes: a.id });
+  const prior = await db.memoryItem.findUnique({ where: { id: a.id } });
+  assert.equal(prior!.status, "archived", "superseded item archived, not deleted");
+  await db.memoryItem.deleteMany({ where: { id: { in: [a.id, b.id] } } });
+});
+
+test("memory: API auth + create + list + archive", async () => {
+  const anon = await fetch(`${BASE}/api/memory`);
+  assert.equal(anon.status, 401, "memory requires auth");
+
+  const created = await api("/api/memory", {
+    method: "POST",
+    body: JSON.stringify({ lane: "procedural", title: "Test procedure zzq", body: "do the thing", tags: ["test"] }),
+  });
+  assert.equal(created.status, 201);
+  const { item } = await created.json();
+
+  const listed = await (await api("/api/memory?lane=procedural")).json();
+  assert.ok(listed.items.some((i: { id: string }) => i.id === item.id), "appears in list");
+  assert.ok(typeof listed.counts.procedural === "number", "lane counts returned");
+
+  // Refusing a secret via the API → 422.
+  const bad = await api("/api/memory", { method: "POST", body: JSON.stringify({ lane: "semantic", title: "leak", body: "token mock-token-xyz" }) });
+  assert.equal(bad.status, 422);
+
+  // Archive (soft delete) → drops from active list.
+  assert.equal((await api(`/api/memory/${item.id}`, { method: "DELETE" })).status, 200);
+  const after = await (await api("/api/memory?lane=procedural")).json();
+  assert.ok(!after.items.some((i: { id: string }) => i.id === item.id), "archived item leaves active list");
+  await db.memoryItem.deleteMany({ where: { title: "Test procedure zzq" } });
+});
+
+test("memory: seed imports cited rules idempotently", async () => {
+  const { seedMemory } = await import("../src/lib/server/seed-memory");
+  const first = await seedMemory(userId);
+  const second = await seedMemory(userId);
+  assert.equal(second, 0, "seeding is idempotent");
+  // A seeded belief exists and cites evidence (honesty from day one).
+  const belief = await db.memoryItem.findFirst({ where: { lane: "belief", title: { contains: "Honesty" } }, include: { links: true } });
+  assert.ok(belief, "honesty belief seeded");
+  assert.ok(belief!.links.length > 0, "seeded belief is cited");
+  void first;
+});

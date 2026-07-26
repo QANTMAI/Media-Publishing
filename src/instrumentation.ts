@@ -10,9 +10,11 @@ export async function register() {
     const { assertConfigAtBoot } = await import("@/lib/server/config");
     assertConfigAtBoot();
 
-    // Put SQLite into WAL mode before any traffic or the worker touches it.
-    const { initDatabasePragmas } = await import("@/lib/server/db");
+    // Put SQLite into WAL mode before any traffic or the worker touches it,
+    // and ensure the organizational-memory full-text index exists.
+    const { initDatabasePragmas, ensureMemoryFts } = await import("@/lib/server/db");
     await initDatabasePragmas();
+    await ensureMemoryFts();
 
     const { startWorker } = await import("@/lib/server/worker");
     startWorker();

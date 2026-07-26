@@ -30,6 +30,48 @@ model User {
   credentials   Credential[]
   notifications Notification[]
   feedSources   FeedSource[]
+  memoryItems   MemoryItem[]
+}
+
+// ── Organizational memory ("The Media Channel") — durable, org-scoped
+//    knowledge across six lanes + synthesized distillate. Survives operator
+//    changes; nothing is hard-deleted (archived + supersedes keep the trail).
+//    Retrieval is SQLite FTS5 (see ensureMemoryFts in db.ts). No secrets/PII —
+//    a write-time guard enforces it. See docs/MEMORY-PLAN.md. ──
+model MemoryItem {
+  id         String    @id @default(cuid())
+  userId     String? // authoredBy — nullable so knowledge outlives the author
+  lane       String // episodic | semantic | concept | procedural | belief | eval | distillate
+  title      String
+  body       String
+  status     String    @default("active") // draft | active | archived
+  confidence Float? // 0..1 — for distillate/belief
+  tags       String? // comma-joined tags for cross-lane grouping
+  supersedes String? // MemoryItem id this replaces (decisions evolve)
+  reviewedAt DateTime? // stewardship freshness
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  user  User?        @relation(fields: [userId], references: [id])
+  links MemoryLink[]
+
+  @@index([lane, status])
+  @@index([status, updatedAt])
+}
+
+// Provenance: what real evidence a memory item cites. Distillate/belief items
+// must have at least one link to be `active` (honesty rule — no uncited claims).
+model MemoryLink {
+  id           String   @id @default(cuid())
+  memoryItemId String
+  kind         String // audit | metric | post | memory | doc | url
+  ref          String // the evidence id/path/url
+  note         String?
+  createdAt    DateTime @default(now())
+
+  item MemoryItem @relation(fields: [memoryItemId], references: [id], onDelete: Cascade)
+
+  @@index([memoryItemId])
 }
 
 // An operator-added RSS/Atom feed the trending surface polls. No third-party

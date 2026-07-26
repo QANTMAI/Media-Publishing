@@ -23,3 +23,36 @@ export async function initDatabasePragmas(): Promise<void> {
   await db.$queryRawUnsafe("PRAGMA busy_timeout=5000;");
   await db.$queryRawUnsafe("PRAGMA synchronous=NORMAL;");
 }
+
+/** Organizational-memory full-text index. FTS5 is a virtual table Prisma
+ * doesn't model, so it lives here — created idempotently at boot and kept in
+ * sync by triggers. Derived infrastructure: safe to rebuild (e.g. after a
+ * Litestream restore), which the backfill at the end guarantees. */
+export async function ensureMemoryFts(): Promise<void> {
+  if (!(process.env.DATABASE_URL ?? "").startsWith("file:")) return;
+  await db.$executeRawUnsafe(
+    `CREATE VIRTUAL TABLE IF NOT EXISTS MemoryItem_fts USING fts5(memoryId UNINDEXED, title, body);`,
+  );
+  await db.$executeRawUnsafe(
+    `CREATE TRIGGER IF NOT EXISTS MemoryItem_fts_ai AFTER INSERT ON MemoryItem BEGIN
+       INSERT INTO MemoryItem_fts(memoryId, title, body) VALUES (new.id, new.title, new.body);
+     END;`,
+  );
+  await db.$executeRawUnsafe(
+    `CREATE TRIGGER IF NOT EXISTS MemoryItem_fts_ad AFTER DELETE ON MemoryItem BEGIN
+       DELETE FROM MemoryItem_fts WHERE memoryId = old.id;
+     END;`,
+  );
+  await db.$executeRawUnsafe(
+    `CREATE TRIGGER IF NOT EXISTS MemoryItem_fts_au AFTER UPDATE ON MemoryItem BEGIN
+       DELETE FROM MemoryItem_fts WHERE memoryId = old.id;
+       INSERT INTO MemoryItem_fts(memoryId, title, body) VALUES (new.id, new.title, new.body);
+     END;`,
+  );
+  // Backfill any rows created before the index existed (or after a restore).
+  await db.$executeRawUnsafe(
+    `INSERT INTO MemoryItem_fts(memoryId, title, body)
+       SELECT id, title, body FROM MemoryItem
+       WHERE id NOT IN (SELECT memoryId FROM MemoryItem_fts);`,
+  );
+}
