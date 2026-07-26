@@ -60,14 +60,19 @@ old rows from the legacy label markers (`taxonomy.LEGACY_LABEL_PROVENANCE`).
 | **SMTP** (optional, `SMTP_URL`/`SMTP_FROM`) | Email mirror of notifications | `src/lib/server/email.ts` |
 | **Anthropic API** (operator key in vault) | AI features (seam present; consumer is roadmap) | `Credential` model |
 
-### External sources declared by the operator — NOT yet mapped
+### External sources — none confirmed
 
-The operator has stated that signal-related data also lives in **Google Cloud**,
-**Google Drive**, and a **VM**. These are **outside this repository and have not
-been observed** by any tooling available in this workspace. They are recorded
-here as *pending discovery* — their contents, schemas, and merge strategy MUST
-be established from the actual sources before anything is written about them.
-Nothing about their structure is assumed. See §6.
+There are **no confirmed external data sources** feeding this system today. All
+data the platform reads and writes lives in the stores listed above (SQLite +
+local object storage), plus the live platform/RSS/SMTP APIs it calls.
+
+Other stores (e.g. Google Cloud, a VM, Google Drive) were raised as a
+*possibility*, but none has been observed, and this workspace has no tooling to
+reach them. **This is deliberately left blank rather than assumed.** If such a
+source turns out to exist, it gets mapped here *from the actual source* — its
+contents, schema, and a merge plan into the existing `MetricSnapshot`/`FeedItem`
+structures — before any of it is written down. Until then there is nothing to
+consolidate.
 
 ## 3. Core data model (15 Prisma models)
 
@@ -167,6 +172,7 @@ session. Verified against `src/app/api/**/route.ts`.
    logged, or sent to the client; credentials return only a masked hint.
 6. **History is durable.** Deletes don't cascade posting history (category by
    name, metrics append-only, cancel is a state not a delete).
-7. **External data is mapped from the source, never assumed.** For Google
-   Cloud / Drive / VM data (§2), no schema or merge plan is written until the
-   actual source is observed.
+7. **External data is mapped from the source, never assumed.** No external data
+   source is confirmed today (§2). If one appears, no schema or merge plan is
+   written until the actual source is observed — an unverified possibility is
+   left blank, not sketched.

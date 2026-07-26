@@ -150,6 +150,6 @@ Litestream, `/api/health`).
 4. AI content studio (bring-your-own-key) and the optimizer/growth engine.
 5. KMS-managed vault key and an S3 storage adapter for multi-instance scale;
    observability and a pen test before public launch.
-6. External signal consolidation — mapping and merging the operator's
-   Google Cloud / Drive / VM data once those sources are accessible
-   (DATA-MAP §2, §6). Not started; blocked on source access.
+6. External signal consolidation — only if external data sources turn out to
+   exist. None is confirmed today (DATA-MAP §2); nothing is planned against
+   unverified sources.
