@@ -50,17 +50,28 @@ fixtures, so a fully-purged database still tests green.
 ## Testing
 
 ```bash
-npm run dev                 # integration tests need the server running
-npm test                    # unit + integration (full suite)
+npm test                    # full suite — ISOLATED (own server + own DB)
 npm run test:unit           # unit only (timezone, vault, backoff, rules)
+npm run test:live           # full suite against an ALREADY-running dev server (fast; uses dev.db)
 ```
+
+**`npm test` is fully isolated.** `scripts/test-isolated.mjs` spins up a
+dedicated server on port **3100** with its own build dir (`.next-test`) and its
+own database (`test.db`), seeds the operator, waits for health, runs the suite,
+then tears the server down. **It never touches `dev.db`** — the dev/operator
+database, its audit log, and episodic memory stay clean. (This was the fix for
+tests polluting the audit log: the suite used to hammer the live dev server.)
+
+`npm run test:live` is the old fast path — it runs the suite against whatever
+dev server is already up on :3000, and *does* write to `dev.db` (handy for
+quick local iteration, at the cost of audit-log noise).
 
 Integration tests sign in through the real flow — password, then a TOTP code
 computed from the enrolled secret (exactly what an authenticator app does) —
 and exercise scheduling, validation, the queue/worker, kill switch,
-reschedule/cancel semantics, TOTP replay rejection, and autopilot. Test
-credentials default to the local dev operator; override with `TEST_EMAIL`,
-`TEST_PASSWORD`, `TEST_BASE_URL`.
+reschedule/cancel semantics, TOTP replay rejection, autopilot, memory, and the
+projection lens. Credentials default to the seeded test operator; override with
+`TEST_EMAIL`, `TEST_PASSWORD`, `TEST_BASE_URL`, `TEST_PORT`.
 
 ## Project layout
 

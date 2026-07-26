@@ -24,3 +24,8 @@ npm-debug.log*
 
 # Private media storage (local adapter)
 storage/
+
+# Isolated test harness artifacts
+.next-test/
+test.db
+test.db-*

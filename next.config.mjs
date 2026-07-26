@@ -31,6 +31,9 @@ const securityHeaders = [
 ];
 
 const nextConfig = {
+  // Isolated build dir for the test server, so `npm test`'s own server doesn't
+  // fight the dev server over `.next`. Defaults to `.next` for normal runs.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   // Packages that resolve bundled binaries via __dirname must stay in
   // node_modules — bundling them breaks their binary paths.
   serverExternalPackages: ["ffmpeg-static", "ffprobe-static", "sharp"],
