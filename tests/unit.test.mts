@@ -200,3 +200,72 @@ test("bluesky: post record attaches facets/embed only when present", () => {
   });
   assert.ok("facets" in rich && "embed" in rich);
 });
+
+// ── YouTube (Data API v3) — the pure OAuth/metadata logic ──────────────────
+const YT = await import("../src/lib/server/youtube");
+
+test("youtube: title derives from the caption's first line, clamped, <> stripped", () => {
+  assert.equal(YT.youtubeTitleFromCaption("My great video\nmore text"), "My great video");
+  assert.equal(YT.youtubeTitleFromCaption("a <script> b"), "a script b");
+  assert.equal(YT.youtubeTitleFromCaption("   "), "Untitled");
+  assert.equal(YT.youtubeTitleFromCaption("x".repeat(200)).length, YT.YT_TITLE_MAX);
+});
+
+test("youtube: metadata shape + description clamp + privacy default", () => {
+  const m = YT.buildVideoMetadata("Title line\nbody");
+  assert.equal(m.snippet.title, "Title line");
+  assert.equal(m.snippet.description, "Title line\nbody");
+  assert.equal(m.snippet.categoryId, YT.YT_DEFAULT_CATEGORY);
+  assert.equal(m.status.privacyStatus, "public");
+  assert.equal(m.status.selfDeclaredMadeForKids, false);
+  assert.equal(YT.buildVideoMetadata("x".repeat(6000)).snippet.description.length, YT.YT_DESCRIPTION_MAX);
+  assert.equal(YT.buildVideoMetadata("hi", "unlisted").status.privacyStatus, "unlisted");
+});
+
+test("youtube: permalink + auth url carry the offline/consent params", () => {
+  assert.equal(YT.youtubePermalink("abc123"), "https://www.youtube.com/watch?v=abc123");
+  const saved = { id: process.env.YOUTUBE_CLIENT_ID, sec: process.env.YOUTUBE_CLIENT_SECRET, uri: process.env.YOUTUBE_REDIRECT_URI };
+  delete process.env.YOUTUBE_CLIENT_ID;
+  delete process.env.YOUTUBE_CLIENT_SECRET;
+  delete process.env.YOUTUBE_REDIRECT_URI;
+  assert.equal(YT.youtubeConfigured(), false);
+  process.env.YOUTUBE_CLIENT_ID = "cid";
+  process.env.YOUTUBE_CLIENT_SECRET = "csec";
+  process.env.YOUTUBE_REDIRECT_URI = "https://app.example/api/oauth/youtube/callback";
+  assert.equal(YT.youtubeConfigured(), true);
+  const u = new URL(YT.youtubeAuthUrl("st8"));
+  assert.equal(u.origin + u.pathname, "https://accounts.google.com/o/oauth2/v2/auth");
+  assert.equal(u.searchParams.get("response_type"), "code");
+  assert.equal(u.searchParams.get("access_type"), "offline");
+  assert.equal(u.searchParams.get("prompt"), "consent");
+  assert.equal(u.searchParams.get("state"), "st8");
+  assert.match(u.searchParams.get("scope") ?? "", /youtube\.upload/);
+  // restore
+  if (saved.id) process.env.YOUTUBE_CLIENT_ID = saved.id; else delete process.env.YOUTUBE_CLIENT_ID;
+  if (saved.sec) process.env.YOUTUBE_CLIENT_SECRET = saved.sec; else delete process.env.YOUTUBE_CLIENT_SECRET;
+  if (saved.uri) process.env.YOUTUBE_REDIRECT_URI = saved.uri; else delete process.env.YOUTUBE_REDIRECT_URI;
+});
+
+const { checkConfig } = await import("../src/lib/server/config");
+const PROD_BASE = {
+  NODE_ENV: "production",
+  SESSION_SECRET: "x".repeat(32),
+  VAULT_MASTER_KEY: Buffer.alloc(32, 1).toString("base64"),
+  STORAGE_SIGNING_KEY: Buffer.alloc(32, 1).toString("base64"),
+  DATABASE_URL: "file:./x",
+  PUBLIC_ORIGIN: "https://app.example",
+  OAUTH_MOCK: "0",
+} as Record<string, string>;
+
+test("config: YouTube OAuth is all-or-none (partial = hard error)", () => {
+  const partial = checkConfig({ ...PROD_BASE, YOUTUBE_CLIENT_ID: "cid" });
+  assert.ok(partial.errors.some((e) => /YouTube OAuth is partially configured/.test(e)), "partial YOUTUBE_* must error");
+  const full = checkConfig({
+    ...PROD_BASE,
+    YOUTUBE_CLIENT_ID: "cid",
+    YOUTUBE_CLIENT_SECRET: "s",
+    YOUTUBE_REDIRECT_URI: "https://app.example/api/oauth/youtube/callback",
+  });
+  assert.ok(!full.errors.some((e) => /YouTube/.test(e)), "complete YOUTUBE_* is not an error");
+  assert.ok(!full.warnings.some((w) => /YOUTUBE_\* is unset/.test(w)), "configured → no unset warning");
+});

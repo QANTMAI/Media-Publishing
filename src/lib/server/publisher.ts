@@ -17,6 +17,7 @@ import { presignUrl, getObject } from "./storage";
 import { validateVideoForPlatform } from "../video-specs";
 import { publishLinkedInPost } from "./linkedin";
 import { publishBluesky, BLUESKY_MAX_IMAGES, BLUESKY_BLOB_MAX_BYTES, type BlueskyImage } from "./bluesky";
+import { publishYouTubeVideo, youtubeRefreshAccess } from "./youtube";
 import { PermanentError, type PublishResult } from "./publisher-errors";
 
 // Re-export the shared contracts — the worker and tests import them from here.
@@ -84,6 +85,13 @@ export async function publishTarget(postTargetId: string): Promise<PublishResult
       // blobs (resized under the 1MB cap). Video is a separate embed — not yet.
       const images = await gatherBlueskyImages(target.assetIds);
       return publishBluesky(account.externalId, token, caption, images);
+    }
+    case "youtube": {
+      // YouTube is video-only. `token` is the stored refresh token — mint a
+      // fresh access token, then resumable-upload the source video.
+      const bytes = await loadYouTubeVideo(target.assetIds, account.platform);
+      const { accessToken } = await youtubeRefreshAccess(token);
+      return publishYouTubeVideo(accessToken, caption, bytes, "video/*");
     }
     case "instagram": {
       const assetId = target.assetIds?.split(",")[0];
@@ -312,6 +320,33 @@ async function toBlueskyImage(bytes: Buffer): Promise<BlueskyImage> {
     throw new PermanentError("Image couldn't be compressed under Bluesky's 1MB limit — use a smaller image");
   }
   return { bytes: last, mime: "image/jpeg", alt: "" };
+}
+
+/** Load the attached video for a YouTube upload: YouTube is video-only, so a
+ * missing/non-video/failed asset is permanent, a still-transcoding one
+ * retryable — and over-limit video fails with the real reason, not an opaque
+ * API error. Returns the source bytes (highest fidelity; YouTube re-encodes). */
+async function loadYouTubeVideo(assetIds: string | null, platform: string): Promise<Buffer> {
+  const assetId = (assetIds ?? "").split(",")[0]?.trim();
+  if (!assetId) throw new PermanentError("YouTube requires a video — attach one to this post");
+  const asset = await db.asset.findUnique({ where: { id: assetId } });
+  if (!asset) throw new PermanentError("Attached media no longer exists");
+  if (asset.type !== "video") throw new PermanentError("YouTube posts must be a video — attach a video file");
+  if (asset.status === "processing") throw new Error("Attached video is still transcoding");
+  if (asset.status === "failed") throw new PermanentError(`Attached video failed processing: ${asset.error ?? "unknown error"}`);
+  if (asset.durationS && asset.width && asset.height) {
+    const problems = validateVideoForPlatform(platform, {
+      durationS: asset.durationS,
+      width: asset.width,
+      height: asset.height,
+      fps: 30,
+      sizeMB: 0,
+    });
+    if (problems.length) throw new PermanentError(`Video violates YouTube limits: ${problems[0]}`);
+  }
+  const bytes = await getObject(asset.storageKey);
+  if (!bytes) throw new PermanentError("Attached video bytes are missing from storage");
+  return bytes;
 }
 
 async function publishFacebookPage(pageId: string, pageToken: string, message: string): Promise<PublishResult> {

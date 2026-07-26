@@ -133,7 +133,7 @@ Every audited action, grouped (source of truth: `taxonomy.AUDIT_ACTIONS`):
 - **metrics** — collected, rate_limited
 - **memory** — create, update, archive, link, seed
 
-## 6. API surface (46 routes)
+## 6. API surface (48 routes)
 
 Auth = requires a full session (`readSession`). "handshake" = part of the login
 flow (password/TOTP, pre-session). "signed" = gated by an HMAC signature, not a
@@ -145,6 +145,7 @@ session. Verified against `src/app/api/**/route.ts`.
 
 **Accounts & OAuth** — `GET /accounts`; `PATCH,DELETE /accounts/:id` (DELETE `?purge=1` removes);
 `GET /oauth/meta/start`, `GET /oauth/meta/callback`; `GET /oauth/linkedin/start`, `GET /oauth/linkedin/callback`;
+`GET /oauth/youtube/start`, `GET /oauth/youtube/callback` (Google OAuth — offline access; stores the refresh token, mints access tokens per publish);
 `POST /accounts/connect/bluesky` (app-password connect — Bluesky uses no OAuth/developer app; verifies the credential against the PDS and stores the app password in the vault).
 
 **Posts & scheduling** — `GET,POST /posts`; `PATCH,DELETE /posts/:postId`;

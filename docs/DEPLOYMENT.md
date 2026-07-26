@@ -124,20 +124,35 @@ nothing reaches real platforms. To publish for real:
 4. Set `PUBLIC_ORIGIN=https://<your-origin>` — Instagram fetches media from us,
    so real IG image/Reel publishing needs a public HTTPS origin.
 
-## 8. Email notifications (optional)
+## 8. YouTube (real publishing)
+
+YouTube uploads via the Data API v3 (Google OAuth). To publish for real:
+
+1. In [console.cloud.google.com](https://console.cloud.google.com): create a project, **enable "YouTube Data API v3"**, configure the OAuth consent screen, and add the scopes `youtube.upload` + `youtube.readonly`.
+2. Create an **OAuth 2.0 Client ID** (type: Web application) with the authorized redirect URI `https://<your-origin>/api/oauth/youtube/callback`.
+3. Set `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`, `YOUTUBE_REDIRECT_URI`, and `OAUTH_MOCK=0`. The config guard then requires all three `YOUTUBE_*` values (all-or-none).
+4. Connect at **Accounts → Connect → YouTube**. The grant uses `access_type=offline` + `prompt=consent`, so we store the durable **refresh token** in the vault and mint a short-lived access token per publish.
+
+> ⚠️ **Two real constraints, surfaced honestly, not worked around:**
+> - **Unaudited-app restriction:** until the app passes YouTube's API compliance audit, uploaded videos are locked to **private** regardless of the requested visibility. Add your own Google account as a **test user** on the consent screen to publish while unaudited.
+> - **Quota:** `videos.insert` costs ~1600 units against a default 10,000/day quota (~6 uploads/day) until you request an increase. The publisher fails an over-quota upload permanently (`quotaExceeded`) rather than retry-looping and burning more quota.
+
+YouTube is **video-only** — a post to a YouTube account must attach a video; the publisher rejects a missing/non-video asset with a clear error.
+
+## 9. Email notifications (optional)
 
 Set **both** `SMTP_URL` (e.g. `smtps://user:pass@smtp.host:465`) and `SMTP_FROM`
 to enable email mirroring of notifications. Leave both empty to disable — the
 app then records notifications in-app only and the Settings UI says email isn't
 configured. Setting only one logs a config warning.
 
-## 9. AI captions (optional)
+## 10. AI captions (optional)
 
 AI provider keys are **not** environment variables. The operator adds an
 Anthropic key in-app under **Settings → Integrations & keys**; it's stored
 encrypted in the same vault as OAuth tokens and used server-side only.
 
-## 10. Pre-launch security checklist
+## 11. Pre-launch security checklist
 
 - [ ] `SESSION_SECRET`, `VAULT_MASTER_KEY`, `STORAGE_SIGNING_KEY` set to freshly generated 32-byte secrets (not the dev values).
 - [ ] `AUTH_DEV_BYPASS` **unset** (the guard aborts the boot if it's `1` in production).
@@ -149,7 +164,7 @@ encrypted in the same vault as OAuth tokens and used server-side only.
 - [ ] `VAULT_MASTER_KEY` in KMS with a rotation + backup plan.
 - [ ] `/api/health` returns `200 {"status":"ok"}` behind the LB.
 
-## 11. Health & operations
+## 12. Health & operations
 
 - **Health probe:** `GET /api/health` — `200 {status:"ok", db:true, publishing:"mock|live", email:bool}` when healthy, `503` when the database is unreachable. Unauthenticated and secret-free; wire it to the load balancer.
 - **Kill switch:** the topbar "Pause all publishing" holds the entire queue instantly (persisted; the worker respects it). Use it during incidents.

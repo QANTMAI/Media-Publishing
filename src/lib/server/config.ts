@@ -86,6 +86,15 @@ export function checkConfig(env: Env = process.env): ConfigReport {
     warnings.push("OAUTH_MOCK=0 but LINKEDIN_* is unset — LinkedIn connects stay in labeled mock mode");
   }
 
+  // ── YouTube (Google) OAuth: same all-or-none + mock-fallback policy ──
+  const ytKeys = ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REDIRECT_URI"] as const;
+  const ytSet = ytKeys.filter((k) => env[k]);
+  if (ytSet.length > 0 && ytSet.length < ytKeys.length) {
+    require_.push(`YouTube OAuth is partially configured (${ytSet.join(", ")}) — set all of ${ytKeys.join(", ")}, or none`);
+  } else if (!mock && ytSet.length === 0) {
+    warnings.push("OAUTH_MOCK=0 but YOUTUBE_* is unset — YouTube connects stay in labeled mock mode");
+  }
+
   // ── Email (optional): both halves or neither ──
   if (!!env.SMTP_URL !== !!env.SMTP_FROM) {
     warnings.push("SMTP is half-configured — set BOTH SMTP_URL and SMTP_FROM, or neither (email notifications will be disabled)");

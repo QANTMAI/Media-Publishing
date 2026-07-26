@@ -1589,3 +1589,28 @@ test("Bluesky connect: auth-gated and rejects a non-app-password (pre-network)",
   assert.equal(badPw.status, 422, "non-app-password format is rejected pre-network");
   assert.match((await badPw.json()).error, /app password/i);
 });
+
+test("YouTube connect (OAuth): start redirects, mock callback creates a labeled channel", async () => {
+  const start = await api("/api/oauth/youtube/start");
+  assert.ok(start.status >= 300 && start.status < 400, "start issues a redirect");
+  const loc = start.headers.get("location") ?? "";
+
+  if (!/mock=1/.test(loc)) {
+    // Real YOUTUBE_* is configured in this env — the mock path isn't exercised;
+    // just assert we're heading to Google's real consent screen.
+    assert.match(loc, /accounts\.google\.com/, "real OAuth redirects to Google");
+    return;
+  }
+
+  // Mock fallback (no YOUTUBE_* creds): follow the callback with the issued state.
+  assert.match(loc, /\/api\/oauth\/youtube\/callback\?mock=1/);
+  const state = new URL(loc, BASE).searchParams.get("state");
+  const cb = await api(`/api/oauth/youtube/callback?mock=1&state=${state}`);
+  assert.ok(cb.status >= 300 && cb.status < 400 && /connected=1/.test(cb.headers.get("location") ?? ""), "callback lands on /accounts?connected=1");
+
+  const acct = await db.socialAccount.findUnique({
+    where: { platform_externalId: { platform: "youtube", externalId: "mock_yt_1" } },
+  });
+  assert.ok(acct && acct.provenance === "mock" && acct.mark === "YT", "mock YouTube channel created + honestly labeled");
+  await db.socialAccount.deleteMany({ where: { platform: "youtube", externalId: "mock_yt_1" } });
+});

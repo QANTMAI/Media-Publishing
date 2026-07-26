@@ -14,6 +14,8 @@ Copy `.env.example` to `.env`:
 | `LINKEDIN_CLIENT_ID` / `LINKEDIN_CLIENT_SECRET` | LinkedIn developer app (all three set together, or none) |
 | `LINKEDIN_REDIRECT_URI` | OAuth callback, `<origin>/api/oauth/linkedin/callback` |
 | `LINKEDIN_API_VERSION` | Optional; overrides the pinned versioned-API month (`YYYYMM`) |
+| `YOUTUBE_CLIENT_ID` / `YOUTUBE_CLIENT_SECRET` | Google OAuth client for YouTube Data API v3 (all three together, or none) |
+| `YOUTUBE_REDIRECT_URI` | OAuth callback, `<origin>/api/oauth/youtube/callback` |
 | `OAUTH_MOCK` | `1` = simulate ALL platform grants (labeled mock); `0` = real where creds exist |
 | `TRUST_PROXY` | `1` only behind a proxy that sets `X-Forwarded-For` (audit IPs) |
 | `STORAGE_DIR` | Private media directory for the local storage adapter |

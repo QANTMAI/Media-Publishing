@@ -75,11 +75,19 @@ const CONNECTABLE = [
     scopes: OAUTH_SCOPES.IN,
     start: "/api/oauth/linkedin/start",
   },
+  {
+    mark: "YT",
+    name: "YouTube",
+    handle: "upload videos to your channel",
+    scopes: OAUTH_SCOPES.YT,
+    start: "/api/oauth/youtube/start",
+  },
 ] satisfies OauthTarget[];
 
 function startUrlFor(platform: string): string | null {
   if (META_PLATFORMS.includes(platform)) return "/api/oauth/meta/start";
   if (platform === "linkedin") return "/api/oauth/linkedin/start";
+  if (platform === "youtube") return "/api/oauth/youtube/start";
   return null;
 }
 
@@ -318,7 +326,7 @@ export default function AccountsPage() {
         </div>
       </div>
       <p style={{ fontSize: 12, color: "var(--color-neutral-600)", marginTop: 10 }}>
-        X, YouTube, TikTok, Threads, Pinterest and Google Business arrive in the next
+        X, TikTok, Threads, Pinterest and Google Business arrive in the next
         integration waves.
       </p>
 
