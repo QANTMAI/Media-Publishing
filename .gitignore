@@ -22,8 +22,10 @@ next-env.d.ts
 npm-debug.log*
 *.pem
 
-# Private media storage (local adapter)
-storage/
+# Private media storage (local adapter) — ROOT-ANCHORED so it only ignores the
+# runtime media dir, NOT src/app/api/storage/ (an unanchored "storage/" silently
+# excluded the signed-URL route from the repo — caught by CI).
+/storage/
 
 # Isolated test harness artifacts
 .next-test/
