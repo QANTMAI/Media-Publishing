@@ -15,7 +15,20 @@ unaddressed.
 - Every advisory is triaged against the **production** tree
   (`npm ls <pkg> --omit=dev`), not just the flat audit.
 
-## Accepted risk — `brace-expansion` DoS (dev-only)
+## Fixed — `sharp` / libvips (runtime, high) — GHSA-f88m-g3jw-g9cj
+
+- **This was the real Dependabot alert (#11).** `next` bundled a nested
+  `sharp < 0.35.0` (`node_modules/next/node_modules/sharp`) carrying libvips
+  CVEs (2026-33327/33328/35590/35591). **Runtime scope** — sharp powers the
+  media pipeline's image variants, so this was genuinely production-exposed.
+- Our own direct `sharp` was already `0.35.3` (patched); only Next's nested
+  copy was old. npm's suggested "fix" was a Next.js *downgrade* to 14.2.35 —
+  wrong direction. Fixed instead with `overrides: { "sharp": "^0.35.3" }`, so
+  every sharp in the tree resolves to 0.35.3 (patched libvips 8.18.3).
+- Verified: single sharp version tree-wide, prod tree clean, and a resize
+  smoke test passes. `npm audit` no longer flags sharp.
+
+## Accepted risk — `brace-expansion` DoS (dev-only, not a Dependabot alert)
 
 - **Advisory:** [GHSA-mh99-v99m-4gvg](https://github.com/advisories/GHSA-mh99-v99m-4gvg) — DoS via unbounded brace expansion (high).
 - **Where:** transitively under **ESLint** only (`@eslint/config-array` →
