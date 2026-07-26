@@ -13,10 +13,11 @@ import { db } from "./db";
  * contains secrets" (guaranteed by audit()), so projected bodies are safe. */
 
 export interface ActivityItem {
-  id: string; // the audit event id (provenance)
-  action: string; // raw action string (the citation)
+  id: string; // the source row id (provenance)
+  source: "audit" | "queue" | "feed" | "metric"; // which store this came from
+  action: string; // raw action / synthetic kind (the citation)
   title: string; // humanized label
-  detail: string; // short, safe detail from metadata
+  detail: string; // short, safe detail
   ip: string | null;
   occurredAt: string; // ISO
 }
@@ -131,10 +132,102 @@ export async function projectAuditEvents(opts: ProjectAuditOpts = {}): Promise<A
   });
   return rows.map((r) => ({
     id: r.id,
+    source: "audit" as const,
     action: r.action,
     title: humanizeAuditAction(r.action),
     detail: auditDetail(r.metadata),
     ip: r.ip,
     occurredAt: r.createdAt.toISOString(),
   }));
+}
+
+/* ── The same lens over other authoritative stores ─────────────────────────
+ * Each is a read-only, cited (by source-row id), honest-empty projection — the
+ * discipline the audit projection established, applied to the publish queue,
+ * the trending feed, and the metrics store. No assumptions: fields below are
+ * taken from the real schema; empty stores yield empty projections. */
+
+/** Publish queue (`PublishJob`) — what's pending, retrying, or permanently
+ * failed, humanized. Cited by job id → its target. */
+export async function projectPublishQueue(limit = 40): Promise<ActivityItem[]> {
+  const jobs = await db.publishJob.findMany({
+    orderBy: [{ completedAt: "asc" }, { runAt: "asc" }],
+    take: limit,
+    include: {
+      target: { select: { state: true, error: true, account: { select: { name: true, handle: true } } } },
+    },
+  });
+  return jobs.map((j) => {
+    const state = j.target?.state ?? "unknown";
+    const who = j.target?.account ? `${j.target.account.name} (${j.target.account.handle})` : "a post";
+    const pending = j.completedAt == null;
+    let title: string;
+    if (!pending && state === "failed") title = `Failed to publish to ${who}`;
+    else if (!pending) title = `Published to ${who}`;
+    else if (j.attempts > 0) title = `Retrying publish to ${who} (attempt ${j.attempts + 1})`;
+    else title = `Queued to publish to ${who}`;
+    const detail = [
+      pending ? `runs: ${j.runAt.toISOString()}` : `done: ${j.completedAt!.toISOString()}`,
+      j.attempts ? `attempts: ${j.attempts}` : "",
+      j.lastError ? `error: ${j.lastError.slice(0, 80)}` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    return {
+      id: j.id,
+      source: "queue" as const,
+      action: `queue.${pending ? "pending" : state}`,
+      title,
+      detail,
+      ip: null,
+      occurredAt: (j.completedAt ?? j.runAt).toISOString(),
+    };
+  });
+}
+
+/** Trending feed (`FeedItem`) — recently pulled items, cited by item id. */
+export async function projectFeedActivity(limit = 40): Promise<ActivityItem[]> {
+  const items = await db.feedItem.findMany({
+    orderBy: [{ publishedAt: "desc" }, { fetchedAt: "desc" }],
+    take: limit,
+    include: { source: { select: { title: true } } },
+  });
+  return items.map((it) => ({
+    id: it.id,
+    source: "feed" as const,
+    action: "feed.item",
+    title: it.title,
+    detail: [`source: ${it.source.title}`, it.link ? `link: ${it.link.slice(0, 80)}` : ""].filter(Boolean).join(" · "),
+    ip: null,
+    occurredAt: (it.publishedAt ?? it.fetchedAt).toISOString(),
+  }));
+}
+
+/** Metrics (`MetricSnapshot`) — recent insight pulls, humanized. Real API
+ * responses only; empty until real connections exist. */
+export async function projectMetrics(limit = 40): Promise<ActivityItem[]> {
+  const snaps = await db.metricSnapshot.findMany({
+    orderBy: { fetchedAt: "desc" },
+    take: limit,
+    include: { target: { select: { account: { select: { name: true, handle: true } } } } },
+  });
+  return snaps.map((s) => {
+    const who = s.target?.account ? `${s.target.account.name} (${s.target.account.handle})` : "a post";
+    const nums = [
+      s.views != null ? `${s.views} views` : "",
+      s.reach != null ? `${s.reach} reach` : "",
+      s.likes != null ? `${s.likes} likes` : "",
+      s.comments != null ? `${s.comments} comments` : "",
+      s.shares != null ? `${s.shares} shares` : "",
+    ].filter(Boolean);
+    return {
+      id: s.id,
+      source: "metric" as const,
+      action: "metric.snapshot",
+      title: `Metrics for a post on ${who}`,
+      detail: nums.join(" · ") || "no numbers reported",
+      ip: null,
+      occurredAt: s.fetchedAt.toISOString(),
+    };
+  });
 }

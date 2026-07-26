@@ -1438,3 +1438,48 @@ test("activity API: security + content lenses, auth-gated", async () => {
   const feed = await (await api("/api/activity?limit=10")).json();
   assert.ok(feed.items.every((i: { action: string }) => !i.action.startsWith("auth.")), "default feed excludes auth");
 });
+
+test("projection lens extends to queue / feed / metric stores (honest-empty + real rows)", async () => {
+  const { projectPublishQueue, projectFeedActivity, projectMetrics } = await import("../src/lib/server/projections");
+  const ig = await db.socialAccount.findFirst({ where: { platform: "instagram", status: "connected" } });
+
+  // ── Publish queue ──
+  const post = await db.post.create({
+    data: { userId, baseCaption: "queue projection test", category: "Promo", status: "scheduled",
+      targets: { create: [{ socialAccountId: ig!.id, state: "scheduled", scheduledAt: new Date(Date.now() + 3600_000) }] } },
+    include: { targets: true },
+  });
+  const job = await db.publishJob.create({ data: { postTargetId: post.targets[0].id, runAt: new Date(Date.now() + 3600_000) } });
+  const q = await projectPublishQueue(20);
+  const qItem = q.find((i: { id: string }) => i.id === job.id);
+  assert.ok(qItem, "queue projection includes the pending job");
+  assert.equal(qItem!.source, "queue");
+  assert.match(qItem!.title, /Queued to publish/);
+
+  // ── Feed ──
+  const src = await db.feedSource.create({ data: { userId, url: "https://example.com/proj-feed", title: "Proj Feed" } });
+  const fi = await db.feedItem.create({ data: { sourceId: src.id, guid: "g-proj-1", title: "Proj headline", link: "https://example.com/a", publishedAt: new Date() } });
+  const f = await projectFeedActivity(20);
+  const fItem = f.find((i: { id: string }) => i.id === fi.id);
+  assert.ok(fItem && fItem.source === "feed" && fItem.title === "Proj headline", "feed projection includes the item, cited by id");
+
+  // ── Metrics ──
+  const snap = await db.metricSnapshot.create({ data: { postTargetId: post.targets[0].id, views: 100, reach: 80, likes: 5, raw: "{}" } });
+  const m = await projectMetrics(20);
+  const mItem = m.find((i: { id: string }) => i.id === snap.id);
+  assert.ok(mItem && mItem.source === "metric", "metric projection includes the snapshot");
+  assert.match(mItem!.detail, /100 views/, "real numbers, cited");
+
+  // Cleanup (cascades job/target/snapshot with the post; feed separately).
+  await db.post.delete({ where: { id: post.id } });
+  await db.feedSource.delete({ where: { id: src.id } });
+});
+
+test("activity API: source=queue|feed|metric lenses, auth-gated", async () => {
+  assert.equal((await fetch(`${BASE}/api/activity?source=queue`)).status, 401);
+  for (const source of ["queue", "feed", "metric"]) {
+    const d = await (await api(`/api/activity?source=${source}&limit=5`)).json();
+    assert.ok(Array.isArray(d.items), `${source} returns an array`);
+    assert.ok(d.items.every((i: { source: string }) => i.source === source || d.items.length === 0), `${source} items tagged with their source`);
+  }
+});
