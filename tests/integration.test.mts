@@ -97,6 +97,17 @@ before(async () => {
       },
     });
   }
+  const anyBs = await db.socialAccount.findFirst({ where: { platform: "bluesky", status: "connected" } });
+  if (!anyBs) {
+    // No token on purpose: proves Bluesky now passes the scheduling gate.
+    // Tests schedule future-dated so the worker never attempts a real publish.
+    await db.socialAccount.create({
+      data: {
+        userId, platform: "bluesky", externalId: "fixture_bs", name: "Bluesky",
+        mark: "BS", handle: "@fixture.bsky.social", label: "test fixture", provenance: "mock", status: "connected",
+      },
+    });
+  }
 
   // Real sign-in: wrong password rejected, right password + TOTP accepted.
   const bad = await api("/api/auth/login", {
@@ -1539,4 +1550,42 @@ test("memory distillation: a draft distillate is promoted to active only with ci
   // Cleanup.
   await db.memoryItem.deleteMany({ where: { id: { in: [draft.item.id, uncited.item.id] } } });
   await db.auditEvent.delete({ where: { id: evt.id } });
+});
+
+test("Bluesky is schedulable now — the publisher gate is open", async () => {
+  const bs = await db.socialAccount.findFirst({ where: { platform: "bluesky", status: "connected" } });
+  assert.ok(bs, "need a connected bluesky fixture");
+  // Future-dated so the worker never tries a real publish during the test.
+  const inWindow = new Date(Date.now() + 7 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+  const created = await api("/api/posts", {
+    method: "POST",
+    body: JSON.stringify({
+      baseCaption: "hello bluesky https://qantm.ai",
+      accountIds: [bs!.id],
+      date: inWindow,
+      time: "10:00",
+      tz: "UTC",
+    }),
+  });
+  assert.equal(created.status, 201, "Bluesky now passes the 'not integrated yet' gate");
+  const { postId } = await created.json();
+  await db.post.delete({ where: { id: postId } }).catch(() => {});
+});
+
+test("Bluesky connect: auth-gated and rejects a non-app-password (pre-network)", async () => {
+  // Unauthenticated is refused before anything else.
+  assert.equal((await fetch(`${BASE}/api/accounts/connect/bluesky`, { method: "POST", body: "{}" })).status, 401);
+
+  // Missing fields → 422, no network call.
+  const missing = await api("/api/accounts/connect/bluesky", { method: "POST", body: JSON.stringify({}) });
+  assert.equal(missing.status, 422);
+
+  // A main-password-shaped secret is rejected up front (before hitting Bluesky),
+  // protecting the operator from pasting their real password.
+  const badPw = await api("/api/accounts/connect/bluesky", {
+    method: "POST",
+    body: JSON.stringify({ identifier: "alice.bsky.social", appPassword: "my-real-password" }),
+  });
+  assert.equal(badPw.status, 422, "non-app-password format is rejected pre-network");
+  assert.match((await badPw.json()).error, /app password/i);
 });

@@ -149,3 +149,54 @@ test("distill: normalizeTitle collapses case/space/punctuation for dedup", () =>
   assert.notEqual(D.normalizeTitle("A"), D.normalizeTitle("B"));
   assert.ok(D.EVIDENCE_MIN >= 1);
 });
+
+// ── Bluesky (AT Protocol) — the pure protocol logic ────────────────────────
+const BS = await import("../src/lib/server/bluesky");
+
+test("bluesky: link facets use UTF-8 byte offsets and trim trailing punctuation", () => {
+  const [f] = BS.buildLinkFacets("see https://qantm.ai now");
+  assert.equal(f.features[0].$type, "app.bsky.richtext.facet#link");
+  assert.equal(f.features[0].uri, "https://qantm.ai");
+  assert.equal(f.index.byteStart, 4);
+  assert.equal(f.index.byteEnd, 4 + Buffer.byteLength("https://qantm.ai"));
+  // A URL ending a sentence must not swallow the period.
+  const [g] = BS.buildLinkFacets("go https://x.com.");
+  assert.equal(g.features[0].uri, "https://x.com");
+});
+
+test("bluesky: byte offsets account for multi-byte characters before the link", () => {
+  // "café " is 5 characters but 6 UTF-8 bytes (é = 2 bytes).
+  const [f] = BS.buildLinkFacets("café https://qantm.ai");
+  assert.equal(f.index.byteStart, 6);
+  assert.equal(f.index.byteEnd, 6 + Buffer.byteLength("https://qantm.ai"));
+});
+
+test("bluesky: zero links → no facets; multiple links each faceted", () => {
+  assert.deepEqual(BS.buildLinkFacets("just text, no urls"), []);
+  assert.equal(BS.buildLinkFacets("a https://one.com b https://two.com").length, 2);
+});
+
+test("bluesky: permalink derives from the at:// uri rkey", () => {
+  const uri = "at://did:plc:abc123/app.bsky.feed.post/3kxyz";
+  assert.equal(BS.blueskyPermalink("alice.bsky.social", uri), "https://bsky.app/profile/alice.bsky.social/post/3kxyz");
+  assert.equal(BS.blueskyPermalink("@alice.bsky.social", uri), "https://bsky.app/profile/alice.bsky.social/post/3kxyz");
+});
+
+test("bluesky: app-password gate rejects a main password", () => {
+  assert.ok(BS.looksLikeAppPassword("abcd-efgh-ijkl-mnop"));
+  assert.ok(!BS.looksLikeAppPassword("my-real-password"));
+  assert.ok(!BS.looksLikeAppPassword("abcdefghijklmnop"));
+});
+
+test("bluesky: post record attaches facets/embed only when present", () => {
+  const bare = BS.buildPostRecord("hi", "2026-07-26T00:00:00.000Z", [], null);
+  assert.equal(bare.$type, "app.bsky.feed.post");
+  assert.equal(bare.text, "hi");
+  assert.equal(bare.createdAt, "2026-07-26T00:00:00.000Z");
+  assert.ok(!("facets" in bare) && !("embed" in bare));
+  const rich = BS.buildPostRecord("x", "t", [{ index: { byteStart: 0, byteEnd: 1 }, features: [] }], {
+    $type: "app.bsky.embed.images",
+    images: [],
+  });
+  assert.ok("facets" in rich && "embed" in rich);
+});

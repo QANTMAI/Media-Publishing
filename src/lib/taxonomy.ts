@@ -69,7 +69,7 @@ export const PLATFORMS: readonly PlatformDef[] = PLATFORM_IDENTITY.map((p) => ({
 
 export const PLATFORM_IDS = PLATFORMS.map((p) => p.id);
 export const PLATFORM_MARKS = PLATFORMS.map((p) => p.mark);
-/** The subset the composer/publisher supports today (Wave 1 + TikTok). */
+/** The subset the composer/publisher supports today (Wave 1 + TikTok + Bluesky). */
 export const PUBLISHABLE_PLATFORM_IDS = PLATFORMS.filter((p) => p.publishable).map((p) => p.id);
 
 const PLATFORM_BY_MARK = new Map(PLATFORMS.map((p) => [p.mark, p]));

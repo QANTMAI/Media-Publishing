@@ -35,17 +35,21 @@ const BASE_RULES: Record<string, Omit<PlatformRules, "vid">> = {
   facebook:  { id: "facebook",  name: "Facebook",  mark: "FB", limit: 63206, tags: "no cap", img: "JPG/PNG", best: "1.91:1 or 1:1" },
   youtube:   { id: "youtube",   name: "YouTube",   mark: "YT", limit: 5000, tags: "15 max", img: "Thumbnail 1280×720 · ≤2MB", best: "16:9" },
   tiktok:    { id: "tiktok",    name: "TikTok",    mark: "TT", limit: 2200, tags: "in caption", img: "Photo mode · JPG/PNG", best: "9:16 vertical" },
+  // Bluesky: 300-GRAPHEME text limit (app.bsky.feed.post lexicon). Hashtags
+  // live in the caption. Images auto-resize under the 1MB blob cap; links in
+  // the text become clickable facets. No developer app — per-account app pwd.
+  bluesky:   { id: "bluesky",   name: "Bluesky",   mark: "BS", limit: 300,  tags: "in caption", img: "JPG/PNG/WebP · up to 4 · ≤1MB each (auto-resized)", best: "16:9 or 1:1" },
 };
 
 export const PLATFORM_RULES: Record<string, PlatformRules> = Object.fromEntries(
   Object.entries(BASE_RULES).map(([id, base]) => [id, { ...base, vid: videoSummary(id) }]),
 );
 
-/** Platforms the composer can publish to today (Wave 1 + TikTok). */
+/** Platforms the composer can publish to today (Wave 1 + TikTok + Bluesky). */
 export const COMPOSER_PLATFORMS = Object.keys(PLATFORM_RULES);
 
 export const MARK_TO_PLATFORM: Partial<Record<PlatformMark, string>> = {
-  IG: "instagram", X: "x", IN: "linkedin", FB: "facebook", YT: "youtube", TT: "tiktok",
+  IG: "instagram", X: "x", IN: "linkedin", FB: "facebook", YT: "youtube", TT: "tiktok", BS: "bluesky",
 };
 
 /* ── Default categories (README design tokens) ──

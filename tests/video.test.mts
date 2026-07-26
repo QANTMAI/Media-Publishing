@@ -93,7 +93,13 @@ test("SYSTEM RULE: composer video display derives from the enforced specs", () =
   // the UI can never show a limit the API doesn't enforce.
   for (const [id, rules] of Object.entries(PLATFORM_RULES)) {
     const spec = VIDEO_SPECS[id];
-    assert.ok(spec, `${id} has an enforced video spec`);
+    if (!spec) {
+      // A publishable platform with no enforced video spec (e.g. Bluesky —
+      // text/image only, video is a separate embed not yet integrated) must
+      // HONESTLY display no video capability, never a number the API can't back.
+      assert.equal(rules.vid, "not integrated", `${id} has no video spec, so its display must say "not integrated"`);
+      continue;
+    }
     const dur =
       spec.maxDurationS >= 3600
         ? `${Math.round(spec.maxDurationS / 3600)}h`

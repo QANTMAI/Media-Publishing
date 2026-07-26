@@ -10,11 +10,13 @@
  * silent fake. Mock tokens (OAUTH_MOCK grants) publish to a labeled mock
  * permalink so the pipeline is exercisable end to end. */
 
+import sharp from "sharp";
 import { db } from "./db";
 import { readSecret } from "./vault";
-import { presignUrl } from "./storage";
+import { presignUrl, getObject } from "./storage";
 import { validateVideoForPlatform } from "../video-specs";
 import { publishLinkedInPost } from "./linkedin";
+import { publishBluesky, BLUESKY_MAX_IMAGES, BLUESKY_BLOB_MAX_BYTES, type BlueskyImage } from "./bluesky";
 import { PermanentError, type PublishResult } from "./publisher-errors";
 
 // Re-export the shared contracts — the worker and tests import them from here.
@@ -76,6 +78,13 @@ export async function publishTarget(postTargetId: string): Promise<PublishResult
       // Text posts via the versioned Posts API (w_member_social). Media posts
       // need the Images/Videos upload APIs — a follow-up wave.
       return publishLinkedInPost(account.externalId, token, caption);
+    case "bluesky": {
+      // App-password auth: `token` is the stored app password, externalId the
+      // DID. Text posts with clickable link facets; attached images upload as
+      // blobs (resized under the 1MB cap). Video is a separate embed — not yet.
+      const images = await gatherBlueskyImages(target.assetIds);
+      return publishBluesky(account.externalId, token, caption, images);
+    }
     case "instagram": {
       const assetId = target.assetIds?.split(",")[0];
       if (!assetId) {
@@ -254,6 +263,55 @@ async function graphPost<T>(path: string, params: Record<string, string>): Promi
     throw new Error(`Instagram publish failed: ${msg}`);
   }
   return body;
+}
+
+/** Load up to 4 attached IMAGE assets as Bluesky-ready blobs. Video is a
+ * different embed and not yet supported; a referenced-but-missing or failed
+ * asset is permanent, a still-processing one retryable — mirroring the IG path. */
+async function gatherBlueskyImages(assetIds: string | null): Promise<BlueskyImage[]> {
+  const ids = (assetIds ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, BLUESKY_MAX_IMAGES);
+  const out: BlueskyImage[] = [];
+  for (const id of ids) {
+    const asset = await db.asset.findUnique({ where: { id } });
+    if (!asset) throw new PermanentError("Attached media no longer exists");
+    if (asset.type === "video") {
+      throw new PermanentError("Bluesky video posting isn't integrated yet — post text or images (remove the video)");
+    }
+    if (asset.status === "processing") throw new Error("Attached image is still processing");
+    if (asset.status === "failed") throw new PermanentError(`Attached image failed processing: ${asset.error ?? "unknown error"}`);
+    const bytes = await getObject(asset.storageKey);
+    if (!bytes) throw new PermanentError("Attached image bytes are missing from storage");
+    out.push(await toBlueskyImage(bytes));
+  }
+  return out;
+}
+
+/** Normalize an image for Bluesky: keep a JPEG/PNG/WebP that's already under
+ * the 1MB blob cap; otherwise re-encode to JPEG, shrinking until it fits.
+ * Re-encoding also strips EXIF/metadata — a privacy win. */
+async function toBlueskyImage(bytes: Buffer): Promise<BlueskyImage> {
+  const meta = await sharp(bytes).metadata().catch(() => null);
+  const fmt = meta?.format;
+  if (bytes.length <= BLUESKY_BLOB_MAX_BYTES && (fmt === "jpeg" || fmt === "png" || fmt === "webp")) {
+    return { bytes, mime: fmt === "png" ? "image/png" : fmt === "webp" ? "image/webp" : "image/jpeg", alt: "" };
+  }
+  let width = 2000;
+  let quality = 85;
+  for (let i = 0; i < 6; i++) {
+    const out = await sharp(bytes).rotate().resize({ width, withoutEnlargement: true }).jpeg({ quality, mozjpeg: true }).toBuffer();
+    if (out.length <= BLUESKY_BLOB_MAX_BYTES) return { bytes: out, mime: "image/jpeg", alt: "" };
+    width = Math.round(width * 0.8);
+    quality = Math.max(40, quality - 10);
+  }
+  const last = await sharp(bytes).rotate().resize({ width: 900 }).jpeg({ quality: 40, mozjpeg: true }).toBuffer();
+  if (last.length > BLUESKY_BLOB_MAX_BYTES) {
+    throw new PermanentError("Image couldn't be compressed under Bluesky's 1MB limit — use a smaller image");
+  }
+  return { bytes: last, mime: "image/jpeg", alt: "" };
 }
 
 async function publishFacebookPage(pageId: string, pageToken: string, message: string): Promise<PublishResult> {

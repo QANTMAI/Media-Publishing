@@ -124,6 +124,13 @@ Developer-app submissions (Meta, X, LinkedIn, YouTube, TikTok, Pinterest,
 Google Business) gate the integration timeline, not the code — start them
 early. Until then `OAUTH_MOCK=1` keeps every flow exercisable.
 
+**Bluesky is the exception — no developer app, no OAuth, no review.** Connect
+it with a per-account **app password** (Bluesky → Settings → App Passwords) at
+**Accounts → Connect → Bluesky**; the app password is stored encrypted in the
+same vault and the scheduler re-authenticates per publish. Text posts get
+clickable link facets; attached images upload as blobs (auto-resized under
+Bluesky's 1 MB cap). It needs no environment variables.
+
 ## Recovery & operational safety
 
 **First-run window (TOFU):** until setup completes, `/setup` is open to

@@ -90,6 +90,11 @@ export default function AccountsPage() {
   const [redirecting, setRedirecting] = useState(false);
   const [removeAcct, setRemoveAcct] = useState<SocialAccount | null>(null);
   const [removing, setRemoving] = useState(false);
+  // Bluesky connects with an app password (no OAuth) — its own small form.
+  const [blueskyOpen, setBlueskyOpen] = useState(false);
+  const [bsHandle, setBsHandle] = useState("");
+  const [bsPassword, setBsPassword] = useState("");
+  const [bsBusy, setBsBusy] = useState(false);
 
   const refresh = async () => {
     const res = await fetch("/api/accounts");
@@ -173,6 +178,26 @@ export default function AccountsPage() {
       scopes: OAUTH_SCOPES[a.mark] ?? ["Publish on your behalf", "Read engagement metrics"],
       start: startUrlFor(a.platform),
     });
+
+  const connectBluesky = async () => {
+    setBsBusy(true);
+    const res = await fetch("/api/accounts/connect/bluesky", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ identifier: bsHandle, appPassword: bsPassword }),
+    });
+    setBsBusy(false);
+    const d = await res.json().catch(() => ({}));
+    if (res.ok) {
+      notify(`Connected ${d.account?.handle ?? "Bluesky"}`);
+      setBlueskyOpen(false);
+      setBsHandle("");
+      setBsPassword("");
+      refresh();
+    } else {
+      notify(d.error ?? "Could not connect Bluesky");
+    }
+  };
 
   const authorize = () => {
     const t = oauthTarget;
@@ -278,9 +303,22 @@ export default function AccountsPage() {
             </button>
           </div>
         ))}
+        {/* Bluesky — app password, not OAuth. No developer app, no app review. */}
+        <div style={{ padding: "14px 18px", display: "flex", alignItems: "center", gap: 14 }}>
+          <div className="mark">BS</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 600, fontSize: 14 }}>Bluesky</div>
+            <div style={{ fontSize: 12, color: "var(--color-neutral-600)" }}>
+              app password — no developer app needed, post for real today
+            </div>
+          </div>
+          <button className="btn btn-primary" onClick={() => setBlueskyOpen(true)}>
+            Connect
+          </button>
+        </div>
       </div>
       <p style={{ fontSize: 12, color: "var(--color-neutral-600)", marginTop: 10 }}>
-        X, YouTube, TikTok, Threads, Bluesky, Pinterest and Google Business arrive in the next
+        X, YouTube, TikTok, Threads, Pinterest and Google Business arrive in the next
         integration waves.
       </p>
 
@@ -325,6 +363,66 @@ export default function AccountsPage() {
                 {removing ? "Removing…" : "Remove account"}
               </button>
               <button className="btn btn-secondary" onClick={() => setRemoveAcct(null)} disabled={removing}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Bluesky connect (app password) ── */}
+      {blueskyOpen && (
+        <div
+          className="dialog-backdrop"
+          onClick={() => {
+            if (!bsBusy) setBlueskyOpen(false);
+          }}
+        >
+          <div className="dialog" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "16px 20px", borderBottom: "2px solid var(--color-text)" }}>
+              <div className="mark">BS</div>
+              <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 16 }}>Connect Bluesky</div>
+            </div>
+            <div style={{ padding: 20 }}>
+              <p style={{ margin: "0 0 14px", fontSize: 13, color: "var(--color-neutral-700)" }}>
+                Bluesky uses an <strong>app password</strong> — not OAuth. Create one at{" "}
+                <strong>Bluesky → Settings → App Passwords</strong> and paste it below. It&apos;s stored
+                encrypted in the vault and can be revoked in Bluesky anytime, independently of your main
+                password.
+              </p>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Handle</label>
+              <input
+                className="input"
+                value={bsHandle}
+                placeholder="you.bsky.social"
+                onChange={(e) => setBsHandle(e.target.value)}
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                style={{ width: "100%", marginBottom: 12 }}
+              />
+              <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>App password</label>
+              <input
+                className="input"
+                type="password"
+                value={bsPassword}
+                placeholder="xxxx-xxxx-xxxx-xxxx"
+                onChange={(e) => setBsPassword(e.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+                onKeyDown={(e) => e.key === "Enter" && bsHandle.trim() && bsPassword.trim() && !bsBusy && connectBluesky()}
+                style={{ width: "100%" }}
+              />
+            </div>
+            <div style={{ display: "flex", gap: 10, padding: "16px 20px", borderTop: "2px solid var(--color-divider)" }}>
+              <button
+                className="btn btn-primary"
+                onClick={connectBluesky}
+                disabled={bsBusy || !bsHandle.trim() || !bsPassword.trim()}
+              >
+                {bsBusy ? "Connecting…" : "Connect"}
+              </button>
+              <button className="btn btn-secondary" onClick={() => setBlueskyOpen(false)} disabled={bsBusy}>
                 Cancel
               </button>
             </div>
