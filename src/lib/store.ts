@@ -455,7 +455,12 @@ export const usePortal = create<PortalState>()(
  * Subscription-based: the flag flips in persist's onFinishHydration callback
  * (an external-system event), never synchronously inside the effect body. */
 export function useStoreHydration() {
-  const [hydrated, setHydrated] = useState(() => usePortal.persist.hasHydrated());
+  // SSR-safe initializer: this runs during static prerender too, where the
+  // persist API may not be attached (observed undefined on Node 20 at build
+  // time, though present on newer Node). Optional-chain so prerender can't
+  // crash reading `.hasHydrated` on undefined — it resolves to `false` on the
+  // server, and the effect below flips it once real hydration finishes.
+  const [hydrated, setHydrated] = useState(() => usePortal.persist?.hasHydrated() ?? false);
   useEffect(() => {
     const unsub = usePortal.persist.onFinishHydration(() => setHydrated(true));
     usePortal.persist.rehydrate();
