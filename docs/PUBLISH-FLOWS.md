@@ -114,7 +114,7 @@ if (target.state === "published" && target.permalink) {
 
 ## 7. Deduplication
 
-**No unique constraint prevents duplicate targets or jobs.** `PostTarget` has only `@@index([state, scheduledAt])` (`schema.prisma:274`) and `PublishJob` only `@@index([runAt, completedAt])` (`schema.prisma:309`) — both non-unique. The route does not dedupe `accountIds` before creating targets. The **only** guard against duplicate work is procedural: exactly one job per target at schedule time, none for drafts (`posts/route.ts:176-181`). Uniqueness that *does* exist is elsewhere: `SocialAccount @@unique([platform, externalId])` (`schema.prisma:216`), `FeedItem`, `Credential` — none of them target/job dedup.
+**`PostTarget` now carries `@@unique([postId, socialAccountId])`** (migration `posttarget_account_unique`) — the DB rejects a second target for the same (post, account). The posts route also dedupes `accountIds` before creating targets. `PublishJob` still has no unique constraint (only `@@index([runAt, completedAt])`, `schema.prisma:309`) — but exactly one job is created per target, so duplicate jobs don't arise in practice. The **only** guard against duplicate work is procedural: exactly one job per target at schedule time, none for drafts (`posts/route.ts:176-181`). Uniqueness that *does* exist is elsewhere: `SocialAccount @@unique([platform, externalId])` (`schema.prisma:216`), `FeedItem`, `Credential` — none of them target/job dedup.
 
 ---
 
@@ -216,8 +216,8 @@ Media requirements are enforced with real reasons, not opaque API errors: IG nee
 Consolidated honest inventory — these are real, current gaps, not oversights in the trace:
 
 - **No dead-letter queue.** Terminal failure = `PublishJob.completedAt` + `PostTarget.state="failed"` (§9).
-- **No external/platform idempotency key.** Double-publish prevention relies solely on the local `published` marker; the first-bookkeeping-write-fails window (§6) can re-hit the platform, and is widest for the two-call channels (IG, YouTube).
-- **No unique constraint** on `(post, account)` targets or jobs, and no `accountIds` dedup at schedule time (§7).
+- **No external/platform idempotency key** (per-platform, scheduled). Double-publish prevention relies on the local `published` marker. The **reclaim** double-publish path is now closed (`worker.ts` no longer clobbers a `published` target to `publishing`, so the publisher's guard fires — regression-tested). The residual window is only when the *first* `published` write fails entirely; a platform-level key would close it but is per-platform (Bluesky's `app.bsky.feed.post` uses TID record keys → needs a deterministic-TID design; Meta/LinkedIn/YouTube expose no client idempotency token).
+- ✅ **`(post, account)` uniqueness — shipped.** `@@unique([postId, socialAccountId])` (migration `posttarget_account_unique`) + `accountIds` dedup in the posts route (§7).
 - **No app-side publish rate limiting.** The in-memory limiter is auth-only; platform limits are absorbed reactively by backoff (§8).
 - **No proactive token refresh / no `expiring` transition.** `expiresAt` is stored but unused; a dead token shows up as a failed post, not an account state change (§10).
 - **No post-level "partially published" status.** `Post.status` is never recomputed from target outcomes (§11).
