@@ -75,6 +75,9 @@ export async function POST(req: Request) {
   if (!body.accountIds?.length) {
     return NextResponse.json({ error: "Select at least one account" }, { status: 400 });
   }
+  // Dedup: the same account picked twice must yield ONE target, not two (the
+  // DB now also enforces this via @@unique([postId, socialAccountId])).
+  const accountIds = [...new Set(body.accountIds)];
 
   let scheduledAt: Date;
   try {
@@ -88,9 +91,9 @@ export async function POST(req: Request) {
   }
 
   const accounts = await db.socialAccount.findMany({
-    where: { id: { in: body.accountIds }, userId },
+    where: { id: { in: accountIds }, userId },
   });
-  if (accounts.length !== body.accountIds.length) {
+  if (accounts.length !== accountIds.length) {
     return NextResponse.json({ error: "Unknown account in selection" }, { status: 400 });
   }
   const unconnected = accounts.filter((a) => a.status === "disconnected");

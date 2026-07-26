@@ -271,6 +271,10 @@ model PostTarget {
   jobs    PublishJob[]
   metrics MetricSnapshot[]
 
+  // A post targets any given account at most once — DB-level guarantee against
+  // duplicate targets/jobs for the same (post, account), independent of any
+  // route-level dedup.
+  @@unique([postId, socialAccountId])
   @@index([state, scheduledAt])
 }
 

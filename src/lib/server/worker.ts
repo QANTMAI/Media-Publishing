@@ -70,7 +70,15 @@ export async function runQueueCycle(now = new Date()): Promise<{ processed: numb
 }
 
 async function processJob(jobId: string, postTargetId: string, attempts: number, now: Date) {
-  await db.postTarget.update({ where: { id: postTargetId }, data: { state: "publishing" } }).catch(() => {});
+  // Move to "publishing" — but NEVER clobber an already-"published" target. A
+  // reclaimed job (published, but the job-close write never landed) must keep
+  // state="published" so the publisher's idempotency guard (publisher.ts) short-
+  // circuits and returns the recorded result instead of re-hitting the platform.
+  // (Overwriting to "publishing" here previously defeated that guard — a real
+  // double-publish window, caught by the worker-idempotency test.)
+  await db.postTarget
+    .updateMany({ where: { id: postTargetId, state: { not: "published" } }, data: { state: "publishing" } })
+    .catch(() => {});
 
   // Phase 1: the external publish. Only errors thrown HERE are publish
   // failures eligible for retry/permanent classification.

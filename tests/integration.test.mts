@@ -1366,13 +1366,16 @@ test("memory projection: eval is honest — real outcomes when they exist, empty
   const hadOutcomes = before.some((i: { id: string }) => i.id === "ev_outcomes");
 
   // Create real published + failed targets and re-check the computed rate.
+  // Distinct accounts: a post targets any account at most once (@@unique).
   const ig = await db.socialAccount.findFirst({ where: { platform: "instagram", status: "connected" } });
+  const other = await db.socialAccount.findFirst({ where: { id: { not: ig!.id }, status: "connected" } });
+  assert.ok(other, "need a second connected account for the failed target");
   const post = await db.post.create({
     data: {
       userId, baseCaption: "eval projection test", category: "Promo", status: "published",
       targets: { create: [
         { socialAccountId: ig!.id, state: "published", permalink: "https://mock.qantm.local/x/1" },
-        { socialAccountId: ig!.id, state: "failed", error: "test failure" },
+        { socialAccountId: other!.id, state: "failed", error: "test failure" },
       ] },
     },
   });
@@ -1613,4 +1616,96 @@ test("YouTube connect (OAuth): start redirects, mock callback creates a labeled 
   });
   assert.ok(acct && acct.provenance === "mock" && acct.mark === "YT", "mock YouTube channel created + honestly labeled");
   await db.socialAccount.deleteMany({ where: { platform: "youtube", externalId: "mock_yt_1" } });
+});
+
+// ── Worker idempotency + stale-claim reclaim (audit gap T2) ─────────────────
+const { runQueueCycle } = await import("../src/lib/server/worker");
+
+// Poll a condition (the isolated server runs its OWN worker on the same DB, so
+// assert on final state and tolerate whichever worker processes the job).
+async function waitFor(fn: () => Promise<boolean>, ms = 4000): Promise<boolean> {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    if (await fn()) return true;
+    if (Date.now() > deadline) return false;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
+
+async function killSwitchOff() {
+  await db.setting.upsert({ where: { key: "killSwitch" }, update: { value: "off" }, create: { key: "killSwitch", value: "off" } });
+}
+
+test("worker idempotency: a reclaimed job for an already-published target does NOT re-publish", async () => {
+  await killSwitchOff();
+  const ig = await db.socialAccount.findFirst({ where: { platform: "instagram", status: "connected", tokenRef: { not: null } } });
+  assert.ok(ig, "need a connected IG fixture with a token");
+  // A sentinel permalink the mock publisher would NEVER produce — if it survives,
+  // the recorded result was returned instead of a fresh publish.
+  const RECORDED = "https://recorded.example/already-live";
+  const post = await db.post.create({
+    data: {
+      userId, baseCaption: "idempotency test", category: "Promo", status: "scheduled",
+      // Published already, but with an OPEN job — exactly the "published but the
+      // job-close write didn't land, 10-min stale reclaim fires" window.
+      targets: { create: [{ socialAccountId: ig!.id, state: "published", permalink: RECORDED, externalMediaId: "mock_recorded", scheduledAt: new Date() }] },
+    },
+    include: { targets: true },
+  });
+  const target = post.targets[0];
+  const job = await db.publishJob.create({ data: { postTargetId: target.id, runAt: new Date(Date.now() - 60_000) } });
+
+  try {
+    await runQueueCycle(new Date());
+    // Job gets closed (by whichever worker), but the platform is NEVER re-hit:
+    assert.ok(await waitFor(async () => (await db.publishJob.findUnique({ where: { id: job.id } }))?.completedAt != null), "reclaimed job is closed");
+    const after = await db.postTarget.findUnique({ where: { id: target.id } });
+    assert.equal(after!.permalink, RECORDED, "permalink unchanged — recorded result returned, NOT a fresh mock publish");
+    assert.equal(after!.state, "published");
+  } finally {
+    await db.post.delete({ where: { id: post.id } }).catch(() => {});
+  }
+});
+
+test("worker stale-claim reclaim: a job claimed >10min ago is re-eligible and completes", async () => {
+  await killSwitchOff();
+  const ig = await db.socialAccount.findFirst({ where: { platform: "instagram", status: "connected", tokenRef: { not: null } } });
+  assert.ok(ig);
+  const post = await db.post.create({
+    data: {
+      userId, baseCaption: "stale reclaim test", category: "Promo", status: "scheduled",
+      targets: { create: [{ socialAccountId: ig!.id, state: "scheduled", scheduledAt: new Date() }] },
+    },
+    include: { targets: true },
+  });
+  const target = post.targets[0];
+  // A job claimed 11 minutes ago by a since-crashed worker — must be reclaimed.
+  const job = await db.publishJob.create({
+    data: { postTargetId: target.id, runAt: new Date(Date.now() - 60_000), claimedAt: new Date(Date.now() - 11 * 60_000) },
+  });
+
+  try {
+    await runQueueCycle(new Date());
+    assert.ok(await waitFor(async () => (await db.publishJob.findUnique({ where: { id: job.id } }))?.completedAt != null), "stale-claimed job was reclaimed + completed");
+    const targetAfter = await db.postTarget.findUnique({ where: { id: target.id } });
+    assert.equal(targetAfter!.state, "published", "reclaimed job published via mock token");
+  } finally {
+    await db.post.delete({ where: { id: post.id } }).catch(() => {});
+  }
+});
+
+test("PostTarget uniqueness: a duplicate (post, account) target is rejected at the DB", async () => {
+  const ig = await db.socialAccount.findFirst({ where: { platform: "instagram", status: "connected" } });
+  assert.ok(ig);
+  const post = await db.post.create({ data: { userId, baseCaption: "dup guard", category: "Promo", status: "draft" } });
+  try {
+    await db.postTarget.create({ data: { postId: post.id, socialAccountId: ig!.id, state: "draft" } });
+    await assert.rejects(
+      () => db.postTarget.create({ data: { postId: post.id, socialAccountId: ig!.id, state: "draft" } }),
+      /Unique constraint|constraint failed/i,
+      "second target for the same (post, account) must violate the unique constraint",
+    );
+  } finally {
+    await db.post.delete({ where: { id: post.id } }).catch(() => {});
+  }
 });
