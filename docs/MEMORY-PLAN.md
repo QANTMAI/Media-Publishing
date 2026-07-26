@@ -144,8 +144,21 @@ MemoryTag                        -- cross-lane linking (platform, category, camp
   (`GET /api/memory/brief`, "Onboarding brief" button) is template-composed
   from cited beliefs/procedures/concepts/facts + live activity + outcomes.
   72/72 tests.
-- **Phase 3 — Distillate automation:** AI-proposed, human-approved, evidence-
-  cited insights over Episodic+Eval (gated on the Anthropic key).
+- **Phase 3 — Distillate automation: ✅ SHIPPED.** AI-proposed, human-approved,
+  evidence-cited learnings over the live Episodic + Eval projections, gated on
+  the operator's Anthropic key (bring-your-own, from the vault; never OpenAI).
+  `memory-distill-core.ts` is the pure, unit-tested honesty filter: it packages
+  each projection item as cited evidence, and `validateCandidates` keeps ONLY
+  citations that map to a real row — fabricated ids are dropped, and any
+  candidate left uncited is discarded (C6). `memory-distill.ts` reads the key,
+  calls the Anthropic Messages API (raw HTTPS, `claude-opus-5`, structured
+  JSON output, low effort), and writes each survivor as a `distillate` **draft**
+  — never auto-active. The operator approves a draft (draft → active), which
+  the evidence-required rule already guards. Honest no-ops throughout: no key,
+  too little activity (`< EVIDENCE_MIN`), a provider error, or nothing above
+  routine each return a clear reason and write nothing. `POST/GET
+  /api/memory/distill` + a "Distill insights" button and per-draft Approve
+  control on the Memory page; `memory.distill` in the audit registry. 81 tests.
 - **Phase 4 — Multi-user/RBAC:** only if C1 is resolved that direction.
 
 ## 8. Decisions needed before Phase 1

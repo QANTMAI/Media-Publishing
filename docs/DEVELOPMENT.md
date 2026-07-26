@@ -69,8 +69,9 @@ quick local iteration, at the cost of audit-log noise).
 Integration tests sign in through the real flow — password, then a TOTP code
 computed from the enrolled secret (exactly what an authenticator app does) —
 and exercise scheduling, validation, the queue/worker, kill switch,
-reschedule/cancel semantics, TOTP replay rejection, autopilot, memory, and the
-projection lens. Credentials default to the seeded test operator; override with
+reschedule/cancel semantics, TOTP replay rejection, autopilot, memory,
+AI distillation (honest no-op without a key; cited-evidence approval gate), and
+the projection lens. Credentials default to the seeded test operator; override with
 `TEST_EMAIL`, `TEST_PASSWORD`, `TEST_BASE_URL`, `TEST_PORT`.
 
 ## Project layout

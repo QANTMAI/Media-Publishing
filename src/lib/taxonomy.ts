@@ -196,7 +196,7 @@ export const AUDIT_ACTIONS = {
   feed: ["feed.add", "feed.toggle", "feed.delete"],
   notify: ["notify.prefs"],
   metrics: ["metrics.collected", "metrics.rate_limited"],
-  memory: ["memory.create", "memory.update", "memory.archive", "memory.link", "memory.seed"],
+  memory: ["memory.create", "memory.update", "memory.archive", "memory.link", "memory.seed", "memory.distill"],
 } as const;
 
 /** Flat set of every registered audit action. */

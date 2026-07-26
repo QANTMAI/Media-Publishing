@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Search, Plus, Archive, BookOpen } from "lucide-react";
+import { Search, Plus, Archive, BookOpen, Sparkles, Check } from "lucide-react";
 import { usePortal } from "@/lib/store";
 import { MEMORY_LANES, MEMORY_LINK_KINDS, EVIDENCE_REQUIRED_LANES } from "@/lib/taxonomy";
 
@@ -70,6 +70,13 @@ export default function MemoryPage() {
   const [saving, setSaving] = useState(false);
   const [brief, setBrief] = useState<Brief | null>(null);
   const [briefOpen, setBriefOpen] = useState(false);
+  const [distilling, setDistilling] = useState(false);
+  const [readiness, setReadiness] = useState<{ keySet: boolean; evidenceCount: number; existingDistillates: number } | null>(null);
+
+  const fetchReadiness = () =>
+    fetch("/api/memory/distill")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setReadiness(d));
 
   const openBrief = async () => {
     setBriefOpen(true);
@@ -102,6 +109,7 @@ export default function MemoryPage() {
           setCounts(d.counts);
         }
       });
+    fetchReadiness();
     return () => {
       cancelled = true;
     };
@@ -149,15 +157,74 @@ export default function MemoryPage() {
     }
   };
 
+  // Human approval of a proposed (or drafted) learning: draft → active. The
+  // evidence-required rule already blocks promoting an uncited distillate.
+  const approve = async (id: string) => {
+    const res = await fetch(`/api/memory/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "active" }),
+    });
+    if (res.ok) {
+      notify("Approved — now active");
+      load({ q, lane });
+    } else {
+      notify((await res.json().catch(() => ({}))).error ?? "Could not approve");
+    }
+  };
+
+  // Distillate automation (Phase 3): propose cited learnings from real
+  // activity. Every branch is an honest state — no fabricated insight.
+  const runDistill = async () => {
+    setDistilling(true);
+    const res = await fetch("/api/memory/distill", { method: "POST" });
+    setDistilling(false);
+    const d = await res.json().catch(() => ({}));
+    if (d.ok) {
+      notify(
+        d.created?.length
+          ? `Proposed ${d.created.length} draft learning${d.created.length === 1 ? "" : "s"} — review & approve`
+          : "No new cited learnings this pass",
+      );
+      pickLane("distillate");
+      fetchReadiness();
+    } else if (d.reason === "no_anthropic_key") {
+      notify("Add your Anthropic key in Settings → Integrations to distill learnings");
+    } else if (d.reason === "insufficient_evidence") {
+      notify(`Not enough activity to distill yet (${d.evidenceCount} signal${d.evidenceCount === 1 ? "" : "s"}) — publish and act first`);
+    } else if (d.reason === "none_valid") {
+      notify("Nothing rose above routine activity this pass");
+    } else if (d.reason === "api_error") {
+      notify(`Distillation failed: ${d.status}`);
+    } else {
+      notify("Could not distill");
+    }
+  };
+
   const evidenceRequired = (EVIDENCE_REQUIRED_LANES as readonly string[]).includes(form.lane);
 
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
         <p className="kick">Organizational memory · {total} active across {Object.keys(counts).length} lanes</p>
-        <button className="btn btn-secondary" onClick={openBrief} style={{ fontSize: 12 }}>
-          <BookOpen size={14} /> Onboarding brief
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            className="btn btn-secondary"
+            onClick={runDistill}
+            disabled={distilling}
+            style={{ fontSize: 12 }}
+            title={
+              readiness && !readiness.keySet
+                ? "Add your Anthropic key in Settings → Integrations first"
+                : "Propose cited learnings from recent activity & outcomes"
+            }
+          >
+            <Sparkles size={14} /> {distilling ? "Distilling…" : "Distill insights"}
+          </button>
+          <button className="btn btn-secondary" onClick={openBrief} style={{ fontSize: 12 }}>
+            <BookOpen size={14} /> Onboarding brief
+          </button>
+        </div>
       </div>
 
       {/* Lane overview + filter */}
@@ -255,9 +322,22 @@ export default function MemoryPage() {
                 {it.derived ? (
                   <span style={{ fontSize: 11, color: "var(--color-neutral-500)" }}>{new Date(it.updatedAt).toLocaleDateString()}</span>
                 ) : (
-                  <button className="btn btn-ghost" onClick={() => archive(it.id)} title="Archive" aria-label={`Archive ${it.title}`} style={{ padding: "2px 8px" }}>
-                    <Archive size={14} />
-                  </button>
+                  <span style={{ display: "flex", gap: 4 }}>
+                    {it.status === "draft" && (
+                      <button
+                        className="btn btn-ghost"
+                        onClick={() => approve(it.id)}
+                        title="Approve — promote to active"
+                        aria-label={`Approve ${it.title}`}
+                        style={{ padding: "2px 8px", color: "var(--color-accent-2-700, #2d7a2d)" }}
+                      >
+                        <Check size={14} />
+                      </button>
+                    )}
+                    <button className="btn btn-ghost" onClick={() => archive(it.id)} title="Archive" aria-label={`Archive ${it.title}`} style={{ padding: "2px 8px" }}>
+                      <Archive size={14} />
+                    </button>
+                  </span>
                 )}
               </div>
               <div style={{ fontSize: 13, color: "var(--color-neutral-800)", whiteSpace: "pre-wrap" }}>{it.body}</div>

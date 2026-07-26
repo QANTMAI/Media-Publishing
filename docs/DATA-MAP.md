@@ -133,7 +133,7 @@ Every audited action, grouped (source of truth: `taxonomy.AUDIT_ACTIONS`):
 - **metrics** — collected, rate_limited
 - **memory** — create, update, archive, link, seed
 
-## 6. API surface (44 routes)
+## 6. API surface (45 routes)
 
 Auth = requires a full session (`readSession`). "handshake" = part of the login
 flow (password/TOTP, pre-session). "signed" = gated by an HMAC signature, not a
@@ -162,7 +162,7 @@ session. Verified against `src/app/api/**/route.ts`.
 
 **Feeds (trending)** — `GET,POST /feeds`; `PATCH,DELETE /feeds/:id`; `POST /feeds/refresh`.
 
-**Memory** — `GET,POST /memory` (list / FTS search / author; episodic+eval lanes are live projections); `GET,PATCH,DELETE /memory/:id` (DELETE = archive); `POST /memory/:id/link` (cite evidence); `GET /memory/brief` (onboarding brief).
+**Memory** — `GET,POST /memory` (list / FTS search / author; episodic+eval lanes are live projections); `GET,PATCH,DELETE /memory/:id` (DELETE = archive; PATCH promotes a draft to active); `POST /memory/:id/link` (cite evidence); `GET /memory/brief` (onboarding brief); `GET,POST /memory/distill` (AI distillation — readiness / run; gated on the Anthropic key, proposes cited `distillate` **drafts** for human approval, honest no-op otherwise).
 
 **Activity** — `GET /activity` (humanized, cited, read-only projection of the audit log; `?scope=security` for the auth timeline, `?refs=a,b` for per-entity history). One primitive (`src/lib/server/projections.ts`) behind the memory Episodic lane, the Settings security timeline, and per-post history.
 

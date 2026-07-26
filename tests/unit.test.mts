@@ -94,3 +94,58 @@ test("rules: every composer platform has a complete rules entry", () => {
   assert.equal(PLATFORM_RULES.x.limit, 280);
   assert.equal(PLATFORM_RULES.instagram.limit, 2200);
 });
+
+// ── Memory distillation core (Phase 3) — the honesty filter, pure ──────────
+const D = await import("../src/lib/server/memory-distill-core");
+
+function view(id: string, link: { kind: string; ref: string } | null) {
+  return {
+    id, lane: "episodic", title: `t-${id}`, body: `b-${id}`, status: "active",
+    confidence: null, tags: [], reviewedAt: null, createdAt: "2026-07-25T00:00:00.000Z",
+    updatedAt: "2026-07-25T00:00:00.000Z", links: link ? [{ id: `l-${id}`, note: null, ...link }] : [], derived: true,
+  } as unknown as import("../src/lib/server/memory").MemoryView;
+}
+
+test("distill: buildEvidence assigns citation ids and skips items with no provenance", () => {
+  const { prompt, map } = D.buildEvidence([
+    view("a", { kind: "audit", ref: "evt_a" }),
+    view("b", null), // no link → cannot be evidence
+    view("c", { kind: "metric", ref: "MetricSnapshot rows" }),
+  ]);
+  assert.equal(prompt.length, 2, "linkless item is excluded");
+  assert.deepEqual(prompt.map((p) => p.eid), ["M1", "M2"]);
+  assert.equal(map.get("M1")?.ref, "evt_a");
+  assert.equal(map.get("M2")?.kind, "metric");
+});
+
+test("distill: validateCandidates keeps only real citations and drops uncited/fabricated", () => {
+  const map = new Map<string, D.LinkSpec>([
+    ["M1", { kind: "audit", ref: "evt_a" }],
+    ["M2", { kind: "metric", ref: "metrics" }],
+  ]);
+  const out = D.validateCandidates(
+    {
+      candidates: [
+        { title: "Real cited learning", body: "Supported by evidence.", confidence: 0.8, evidence: ["M1", "M2"] },
+        { title: "Fabricated-only", body: "Cites nothing real.", confidence: 0.9, evidence: ["M9", "nope"] },
+        { title: "Uncited", body: "No citations at all.", confidence: 0.5, evidence: [] },
+        { title: "", body: "no title", confidence: 0.5, evidence: ["M1"] },
+        { title: "Partial", body: "One real one fake.", confidence: 5, evidence: ["M1", "M9", "M1"] },
+      ],
+    },
+    map,
+  );
+  assert.equal(out.length, 2, "only fully-cited, titled candidates survive");
+  assert.deepEqual(out.map((c) => c.title), ["Real cited learning", "Partial"]);
+  // Fabricated ids are stripped; duplicate real ref de-duped.
+  assert.deepEqual(out[1].links.map((l) => l.ref), ["evt_a"]);
+  // Out-of-range confidence is clamped to [0,1].
+  assert.equal(out[1].confidence, 1);
+  assert.equal(out[0].confidence, 0.8);
+});
+
+test("distill: normalizeTitle collapses case/space/punctuation for dedup", () => {
+  assert.equal(D.normalizeTitle("Video at 6 PM!"), D.normalizeTitle("  video at 6 pm  "));
+  assert.notEqual(D.normalizeTitle("A"), D.normalizeTitle("B"));
+  assert.ok(D.EVIDENCE_MIN >= 1);
+});

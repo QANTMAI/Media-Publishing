@@ -1483,3 +1483,60 @@ test("activity API: source=queue|feed|metric lenses, auth-gated", async () => {
     assert.ok(d.items.every((i: { source: string }) => i.source === source || d.items.length === 0), `${source} items tagged with their source`);
   }
 });
+
+test("memory distillation (Phase 3): auth-gated, honest no-op without an Anthropic key", async () => {
+  // Auth required on both surfaces.
+  assert.equal((await fetch(`${BASE}/api/memory/distill`)).status, 401);
+  assert.equal((await fetch(`${BASE}/api/memory/distill`, { method: "POST" })).status, 401);
+
+  // Readiness reflects reality: the test operator has no Anthropic credential.
+  const before = await db.memoryItem.count({ where: { lane: "distillate" } });
+  const ready = await (await api("/api/memory/distill")).json();
+  assert.equal(ready.keySet, false, "no key stored for the test operator");
+  assert.equal(typeof ready.evidenceCount, "number");
+  assert.equal(ready.existingDistillates, before);
+
+  // Running distillation with no key is an honest no-op — a clear reason, and
+  // it writes NOTHING (never a fabricated learning, never a live model call).
+  const res = await api("/api/memory/distill", { method: "POST" });
+  assert.equal(res.status, 200, "no-op is a state, not an error");
+  const d = await res.json();
+  assert.equal(d.ok, false);
+  assert.equal(d.reason, "no_anthropic_key");
+  const after = await db.memoryItem.count({ where: { lane: "distillate" } });
+  assert.equal(after, before, "no drafts written without a key");
+});
+
+test("memory distillation: a draft distillate is promoted to active only with cited evidence", async () => {
+  // A drafted learning WITH a real citation can be approved (draft → active).
+  const evt = await db.auditEvent.create({ data: { userId, action: "post.schedule", metadata: "{}", ip: null } });
+  const draft = await (
+    await api("/api/memory", {
+      method: "POST",
+      body: JSON.stringify({
+        lane: "distillate",
+        status: "draft",
+        title: "Test learning (approval flow)",
+        body: "Cited to a real audit row.",
+        links: [{ kind: "audit", ref: evt.id }],
+      }),
+    })
+  ).json();
+  const approve = await api(`/api/memory/${draft.item.id}`, { method: "PATCH", body: JSON.stringify({ status: "active" }) });
+  assert.equal(approve.status, 200);
+  assert.equal((await approve.json()).item.status, "active", "cited draft promotes to active");
+
+  // An UNCITED distillate cannot go active — the honesty rule holds.
+  const uncited = await (
+    await api("/api/memory", {
+      method: "POST",
+      body: JSON.stringify({ lane: "distillate", status: "draft", title: "Uncited learning", body: "No evidence." }),
+    })
+  ).json();
+  const blocked = await api(`/api/memory/${uncited.item.id}`, { method: "PATCH", body: JSON.stringify({ status: "active" }) });
+  assert.equal(blocked.status, 422, "uncited distillate cannot be promoted");
+
+  // Cleanup.
+  await db.memoryItem.deleteMany({ where: { id: { in: [draft.item.id, uncited.item.id] } } });
+  await db.auditEvent.delete({ where: { id: evt.id } });
+});
