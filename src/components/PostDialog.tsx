@@ -18,6 +18,24 @@ export function PostDialog() {
   const [draftCaption, setDraftCaption] = useState("");
   const [seededFor, setSeededFor] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [history, setHistory] = useState<{ id: string; title: string; detail: string; occurredAt: string }[]>([]);
+
+  // Post history — the shared audit projection through the per-entity lens
+  // (this target id + its parent post id). Read-only, cited by construction.
+  const historyKey = post ? `${post.id}|${post.postId}` : null;
+  useEffect(() => {
+    if (!historyKey) return; // dialog is closed; it renders null anyway
+    let cancelled = false;
+    const [tid, pid] = historyKey.split("|");
+    fetch(`/api/activity?refs=${encodeURIComponent(tid)},${encodeURIComponent(pid)}&limit=20`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d && !cancelled) setHistory(d.items);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [historyKey]);
 
   const isDraft = post?.status === "draft";
 
@@ -157,6 +175,23 @@ export function PostDialog() {
             >
               Failed: {post.error}
             </p>
+          )}
+          {history.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "var(--color-neutral-600)", marginBottom: 6 }}>
+                History
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 3, maxHeight: 140, overflowY: "auto" }}>
+                {history.map((h) => (
+                  <div key={h.id} style={{ display: "flex", gap: 8, fontSize: 12 }}>
+                    <span style={{ flex: 1, color: "var(--color-neutral-800)" }}>{h.title}</span>
+                    <span style={{ flex: "none", color: "var(--color-neutral-500)" }}>
+                      {new Date(h.occurredAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
         </div>
         <div

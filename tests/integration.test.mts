@@ -1401,3 +1401,40 @@ test("memory API: episodic projection served; derived items are not archivable",
   const brief = await (await api("/api/memory/brief")).json();
   assert.ok(brief.brief && Array.isArray(brief.brief.beliefs), "brief endpoint returns composed brief");
 });
+
+test("projection primitive: projectAuditEvents content / security / per-entity lenses", async () => {
+  const { projectAuditEvents } = await import("../src/lib/server/projections");
+
+  // Security lens — auth events only, humanized, with ip where recorded.
+  const security = await projectAuditEvents({ onlyAuth: true, limit: 60 });
+  assert.ok(security.length > 0, "security lens returns auth events (the suite has logged in)");
+  assert.ok(security.every((e: { action: string }) => e.action.startsWith("auth.")), "onlyAuth = auth only");
+  assert.ok(security.some((e: { title: string; action: string }) => e.action === "auth.verify" && /two-factor/i.test(e.title)), "auth actions are humanized");
+
+  // Content lens — excludes auth noise.
+  const content = await projectAuditEvents({ limit: 60 });
+  assert.ok(content.length > 0 && content.every((e: { action: string }) => !e.action.startsWith("auth.")), "default excludes auth");
+
+  // Per-entity lens — a post's schedule audit cites its postId; refs finds it.
+  const ig = await db.socialAccount.findFirst({ where: { platform: "instagram", status: "connected" } });
+  const when = new Date(Date.now() + 6 * 864e5).toISOString().slice(0, 10);
+  const created = await api("/api/posts", { method: "POST", body: JSON.stringify({ baseCaption: "activity refs test", accountIds: [ig!.id], date: when, time: "10:00", tz: "UTC" }) });
+  const { postId } = await created.json();
+  try {
+    const scoped = await projectAuditEvents({ refs: [postId], limit: 20 });
+    assert.ok(scoped.some((e: { action: string }) => e.action === "post.schedule"), "refs filter finds the entity's events");
+    const unrelated = await projectAuditEvents({ refs: ["no_such_entity_zzq"], limit: 20 });
+    assert.equal(unrelated.length, 0, "refs with no matches is empty (honest)");
+  } finally {
+    await db.post.delete({ where: { id: postId } });
+  }
+});
+
+test("activity API: security + content lenses, auth-gated", async () => {
+  assert.equal((await fetch(`${BASE}/api/activity`)).status, 401, "activity requires auth");
+  const sec = await (await api("/api/activity?scope=security&limit=10")).json();
+  assert.ok(Array.isArray(sec.items) && sec.items.length > 0, "security items returned");
+  assert.ok(sec.items.every((i: { action: string }) => i.action.startsWith("auth.")), "security scope = auth only");
+  const feed = await (await api("/api/activity?limit=10")).json();
+  assert.ok(feed.items.every((i: { action: string }) => !i.action.startsWith("auth.")), "default feed excludes auth");
+});

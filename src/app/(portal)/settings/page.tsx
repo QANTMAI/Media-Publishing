@@ -109,7 +109,79 @@ export default function SettingsPage() {
 
       {/* ── Notifications ── */}
       <NotificationsCard />
+
+      {/* ── Security activity (projection over the audit log) ── */}
+      <SecurityActivityCard />
     </div>
+  );
+}
+
+interface ActivityRow {
+  id: string;
+  action: string;
+  title: string;
+  detail: string;
+  ip: string | null;
+  occurredAt: string;
+}
+
+function activityAgo(iso: string): string {
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+/* Reuses the shared audit projection (scope=security) — the same primitive
+ * behind the memory Episodic lane, viewed through the security lens. Read-only. */
+function SecurityActivityCard() {
+  const [items, setItems] = useState<ActivityRow[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/activity?scope=security&limit=25")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d && !cancelled) setItems(d.items);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const alarming = (a: string) => /failed|replayed|throttled/.test(a);
+
+  return (
+    <section>
+      <p className="kick">Security activity</p>
+      <div className="stack stack-strong" style={{ padding: "18px 20px" }}>
+        <div style={{ fontSize: 13, color: "var(--color-neutral-700)", marginBottom: 12 }}>
+          Recent sign-ins and auth events, projected live from the audit log (read-only). Failed attempts and blocked
+          two-factor replays are flagged.
+        </div>
+        {items === null ? (
+          <div style={{ fontSize: 13, color: "var(--color-neutral-600)" }}>Loading…</div>
+        ) : items.length === 0 ? (
+          <div style={{ fontSize: 13, color: "var(--color-neutral-600)" }}>No auth activity recorded yet.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {items.map((it) => (
+              <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderTop: "1px solid var(--color-divider)" }}>
+                <span
+                  className="dot"
+                  style={{ width: 8, height: 8, flex: "none", background: alarming(it.action) ? "var(--color-accent-2)" : "var(--color-accent)" }}
+                />
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ fontSize: 13, fontWeight: alarming(it.action) ? 700 : 500 }}>{it.title}</span>
+                  {it.ip && <span style={{ fontSize: 11, color: "var(--color-neutral-500)", marginLeft: 8 }}>{it.ip}</span>}
+                </span>
+                <span style={{ fontSize: 11, color: "var(--color-neutral-500)", flex: "none" }}>{activityAgo(it.occurredAt)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
