@@ -38,7 +38,9 @@ export function metaAuthUrl(state: string): string {
 
 async function graphGet<T>(path: string, params: Record<string, string>): Promise<T> {
   const url = `${GRAPH}${path}?${new URLSearchParams(params)}`;
-  const res = await fetch(url);
+  // Bounded like every other external call — a hung Graph API must not wedge an
+  // interactive connect/disconnect request.
+  const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
   if (!res.ok) {
     const body = await res.text();
     // Never log tokens — strip query params from the reported URL.
@@ -103,5 +105,6 @@ export async function discoverAccounts(userToken: string): Promise<DiscoveredAcc
 export async function revokeMetaToken(token: string): Promise<void> {
   await fetch(`${GRAPH}/me/permissions?${new URLSearchParams({ access_token: token })}`, {
     method: "DELETE",
+    signal: AbortSignal.timeout(30_000),
   });
 }

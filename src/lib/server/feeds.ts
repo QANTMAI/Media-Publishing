@@ -1,4 +1,6 @@
 import { XMLParser } from "fast-xml-parser";
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import { db } from "./db";
 
 /* Trending & breaking = the operator's own RSS/Atom feeds, polled server-side.
@@ -25,9 +27,81 @@ export interface ParsedFeed {
 
 export class FeedError extends Error {}
 
-/** Reject non-http(s) and obviously-internal hosts before fetching a
- * user-supplied URL (basic SSRF hardening for a single-operator tool). */
-function assertSafeUrl(raw: string): URL {
+/* ── SSRF hardening ──────────────────────────────────────────────────────────
+ * The earlier guard only inspected the hostname STRING, which three ways bypass:
+ * (1) a public host that redirects to an internal IP (redirect:"follow" wasn't
+ * re-validated); (2) DNS rebinding — a public name with a private A record;
+ * (3) alternate encodings / IPv6 the regex missed. This version resolves the
+ * host and validates every RESOLVED IP (v4+v6), and drives redirects manually
+ * so each hop is re-validated.
+ *
+ * Residual (documented, not hidden): a full DNS-rebinding TOCTOU still exists —
+ * the IP we validate at lookup time can differ from the IP the kernel connects
+ * to. Closing that requires pinning the socket to the validated IP, which the
+ * fetch() API can't express. For an authenticated, operator-supplied-URL tool
+ * this is an accepted residual; revisit if feeds ever accept untrusted input. */
+
+const REDIRECT_HOPS = 5;
+
+/** True if an IPv4/IPv6 literal is loopback, private, link-local, CGNAT,
+ * multicast, or otherwise non-global. A malformed/unknown form is treated as
+ * unsafe (fail closed). */
+export function isPrivateAddress(ip: string): boolean {
+  const fam = isIP(ip);
+  if (fam === 4) return ipv4IsPrivate(ip);
+  if (fam === 6) {
+    const lower = ip.toLowerCase();
+    if (lower === "::1" || lower === "::") return true; // loopback / unspecified
+    const mapped = lower.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/); // IPv4-mapped
+    if (mapped) return ipv4IsPrivate(mapped[1]);
+    const head = lower.split(":")[0];
+    if (/^f[cd]/.test(head)) return true; // fc00::/7 unique-local
+    if (/^fe[89ab]/.test(head)) return true; // fe80::/10 link-local
+    if (/^ff/.test(head)) return true; // ff00::/8 multicast
+    return false;
+  }
+  return true; // not a recognized IP literal → unsafe here
+}
+
+function ipv4IsPrivate(ip: string): boolean {
+  const p = ip.split(".").map((n) => Number(n));
+  if (p.length !== 4 || p.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return true; // fail closed
+  const [a, b] = p;
+  return (
+    a === 0 || // 0.0.0.0/8 "this host"
+    a === 127 || // loopback
+    a === 10 || // private
+    (a === 172 && b >= 16 && b <= 31) || // private
+    (a === 192 && b === 168) || // private
+    (a === 169 && b === 254) || // link-local (incl. cloud metadata 169.254.169.254)
+    (a === 100 && b >= 64 && b <= 127) || // CGNAT 100.64/10
+    a >= 224 // multicast / reserved
+  );
+}
+
+/** Resolve a hostname (or validate an IP literal) and reject if it points at a
+ * non-global address. Every A/AAAA record is checked, so a name with one
+ * private record can't sneak through. */
+async function assertPublicHost(host: string): Promise<void> {
+  if (isIP(host)) {
+    if (isPrivateAddress(host)) throw new FeedError("Internal/loopback addresses aren't allowed");
+    return;
+  }
+  let addrs: Array<{ address: string }>;
+  try {
+    addrs = await lookup(host, { all: true });
+  } catch {
+    throw new FeedError("Could not resolve that host");
+  }
+  if (!addrs.length) throw new FeedError("Could not resolve that host");
+  for (const { address } of addrs) {
+    if (isPrivateAddress(address)) throw new FeedError("That host resolves to an internal address");
+  }
+}
+
+/** Validate protocol + host (with DNS resolution) before a fetch. Async because
+ * it resolves DNS; called on the initial URL and on every redirect hop. */
+async function assertSafeUrl(raw: string): Promise<URL> {
   let u: URL;
   try {
     u = new URL(raw);
@@ -35,19 +109,9 @@ function assertSafeUrl(raw: string): URL {
     throw new FeedError("That doesn't look like a valid URL");
   }
   if (u.protocol !== "http:" && u.protocol !== "https:") throw new FeedError("Only http(s) feed URLs are allowed");
-  const host = u.hostname.toLowerCase();
-  if (
-    host === "localhost" ||
-    host === "0.0.0.0" ||
-    host.endsWith(".local") ||
-    /^127\./.test(host) ||
-    /^10\./.test(host) ||
-    /^192\.168\./.test(host) ||
-    /^169\.254\./.test(host) ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(host)
-  ) {
-    throw new FeedError("Internal/loopback addresses aren't allowed");
-  }
+  const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, ""); // strip IPv6 brackets
+  if (host === "localhost" || host.endsWith(".local")) throw new FeedError("Internal/loopback addresses aren't allowed");
+  await assertPublicHost(host);
   return u;
 }
 
@@ -139,19 +203,34 @@ export function parseFeed(xml: string): ParsedFeed {
   throw new FeedError("That URL isn't an RSS or Atom feed");
 }
 
-/** Fetch + parse a feed URL, bounded in time and size. */
+/** Fetch + parse a feed URL, bounded in time and size. Redirects are followed
+ * MANUALLY so every hop is re-validated (a public URL can't redirect us onto an
+ * internal address — the classic SSRF-via-redirect). */
 export async function fetchFeed(url: string): Promise<ParsedFeed> {
-  assertSafeUrl(url);
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      redirect: "follow",
-      headers: { "User-Agent": "QANTM-Media-Portal/1.0 (+feed reader)", Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml" },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
-  } catch (err) {
-    throw new FeedError(err instanceof Error && err.name === "TimeoutError" ? "Feed timed out" : "Could not reach that URL");
+  let current = url;
+  let res: Response | null = null;
+  for (let hop = 0; hop <= REDIRECT_HOPS; hop++) {
+    const u = await assertSafeUrl(current); // protocol + DNS-resolved IP validation, each hop
+    let r: Response;
+    try {
+      r = await fetch(u, {
+        redirect: "manual", // we re-validate each hop ourselves
+        headers: { "User-Agent": "QANTM-Media-Portal/1.0 (+feed reader)", Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml" },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+    } catch (err) {
+      throw new FeedError(err instanceof Error && err.name === "TimeoutError" ? "Feed timed out" : "Could not reach that URL");
+    }
+    if (r.status >= 300 && r.status < 400) {
+      const loc = r.headers.get("location");
+      if (!loc) throw new FeedError("Feed redirect had no destination");
+      current = new URL(loc, u).toString(); // resolve relative; re-validated next iteration
+      continue;
+    }
+    res = r;
+    break;
   }
+  if (!res) throw new FeedError("Feed redirected too many times");
   if (!res.ok) throw new FeedError(`Feed responded ${res.status}`);
   const buf = await res.arrayBuffer();
   if (buf.byteLength > MAX_BYTES) throw new FeedError("Feed is too large");

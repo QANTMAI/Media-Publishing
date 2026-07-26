@@ -246,6 +246,34 @@ test("youtube: permalink + auth url carry the offline/consent params", () => {
   if (saved.uri) process.env.YOUTUBE_REDIRECT_URI = saved.uri; else delete process.env.YOUTUBE_REDIRECT_URI;
 });
 
+// ── SSRF address classifier (feed fetcher hardening) ───────────────────────
+const { isPrivateAddress } = await import("../src/lib/server/feeds");
+
+test("ssrf: private/loopback/link-local/CGNAT/multicast IPv4 are rejected", () => {
+  for (const ip of ["127.0.0.1", "10.1.2.3", "172.16.0.1", "172.31.255.255", "192.168.1.1", "169.254.169.254", "100.64.0.1", "0.0.0.0", "224.0.0.1"]) {
+    assert.equal(isPrivateAddress(ip), true, `${ip} must be private`);
+  }
+});
+
+test("ssrf: public IPv4 is allowed", () => {
+  for (const ip of ["8.8.8.8", "1.1.1.1", "93.184.216.34"]) {
+    assert.equal(isPrivateAddress(ip), false, `${ip} must be public`);
+  }
+});
+
+test("ssrf: IPv6 loopback/ULA/link-local/mapped/multicast are rejected; public v6 allowed", () => {
+  for (const ip of ["::1", "::", "fc00::1", "fd12:3456::1", "fe80::1", "::ffff:127.0.0.1", "::ffff:169.254.169.254", "ff02::1"]) {
+    assert.equal(isPrivateAddress(ip), true, `${ip} must be private`);
+  }
+  assert.equal(isPrivateAddress("2606:4700:4700::1111"), false, "public v6 allowed");
+});
+
+test("ssrf: malformed / non-IP fails closed (treated as unsafe)", () => {
+  for (const bad of ["not-an-ip", "999.999.999.999", "10.0.0", ""]) {
+    assert.equal(isPrivateAddress(bad), true, `${bad} must fail closed`);
+  }
+});
+
 const { checkConfig } = await import("../src/lib/server/config");
 const PROD_BASE = {
   NODE_ENV: "production",
