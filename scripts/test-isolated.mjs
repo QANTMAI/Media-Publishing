@@ -13,6 +13,7 @@
  * (so the secrets from .env are present; only DATABASE_URL is overridden). */
 import { spawn, execFileSync } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
+import { readdirSync } from "node:fs";
 
 const PORT = process.env.TEST_PORT || "3100";
 const BASE = `http://localhost:${PORT}`;
@@ -90,8 +91,16 @@ for (let i = 0; i < 90; i++) {
 if (!healthy) fail("test server never became healthy");
 console.log("[test-harness] server healthy — running tests\n");
 
-// 5) Run the suite against the isolated server + DB.
-const tests = spawn("node", ["--import", "tsx", "--test", "tests/*.test.mts"], {
+// 5) Run the suite against the isolated server + DB. Expand the test files
+// ourselves — `node --test` only supports glob patterns on Node 21+, and the
+// app targets Node 20+, so passing "tests/*.test.mts" as a literal would break
+// on the floor version (as CI on Node 20 proved).
+const testFiles = readdirSync("tests")
+  .filter((f) => f.endsWith(".test.mts"))
+  .sort()
+  .map((f) => `tests/${f}`);
+if (testFiles.length === 0) fail("no *.test.mts files found in tests/");
+const tests = spawn("node", ["--import", "tsx", "--test", ...testFiles], {
   env: { ...env, TEST_BASE_URL: BASE },
   stdio: "inherit",
 });
