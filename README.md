@@ -80,6 +80,8 @@ in prod) · zustand · FullCalendar · jose · otplib · bcryptjs
   SQLite + WAL + Litestream setup, config guard, health probe, security.
 - [docs/PLATFORM-RULES.md](docs/PLATFORM-RULES.md) — every platform limit,
   its verification status, and the single-source-of-truth rule.
+- [docs/SECURITY.md](docs/SECURITY.md) — dependency-advisory triage and any
+  documented accepted risks.
 - [docs/VIDEO.md](docs/VIDEO.md) — researched video specs and the encode plan.
 
 ## Status
