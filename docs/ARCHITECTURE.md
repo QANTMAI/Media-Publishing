@@ -20,7 +20,7 @@ library · accounts            account linking,             calls platform APIs,
 
 ## Data model
 
-15 models. The full field-level map and the controlled vocabularies are in
+17 models. The full field-level map and the controlled vocabularies are in
 [DATA-MAP.md](DATA-MAP.md); the entities:
 
 | Entity | Purpose |
@@ -37,7 +37,8 @@ library · accounts            account linking,             calls platform APIs,
 | `Notification` | Operator notifications from real events; optional email mirror |
 | `FeedSource` / `FeedItem` | Operator RSS/Atom trend sources and their pulled items |
 | `VaultSecret` | Encrypted credential blob (never exposed to the client, never logged) |
-| `AuditEvent` | Login/connect/publish/settings trail (43-action registry — DATA-MAP §5) |
+| `MemoryItem` / `MemoryLink` | Organizational memory across the lanes + cited evidence (DATA-MAP; docs/MEMORY-PLAN.md) |
+| `AuditEvent` | Login/connect/publish/settings trail (action registry — DATA-MAP §5) |
 | `Setting` | Operator flags shared with the worker (kill switch, autopilot) |
 
 Target state machine (six states): `draft → scheduled → publishing →

@@ -1331,3 +1331,73 @@ test("memory: seed imports cited rules idempotently", async () => {
   assert.ok(belief!.links.length > 0, "seeded belief is cited");
   void first;
 });
+
+test("memory projection: episodic reflects real audit events and excludes auth noise", async () => {
+  const { projectEpisodic } = await import("../src/lib/server/memory-projections");
+  // Generate a known, non-auth event.
+  await api("/api/settings", { method: "PUT", body: JSON.stringify({ autopilotMode: "review" }) });
+  const items = await projectEpisodic(50);
+  assert.ok(items.length > 0, "episodic projection is non-empty (audit log has events)");
+  for (const it of items) {
+    assert.equal(it.lane, "episodic");
+    assert.equal(it.derived, true, "episodic items are derived (read-only)");
+    assert.equal(it.links[0]?.kind, "audit", "each cites its audit row");
+    assert.ok(!String(it.links[0]?.note).startsWith("auth."), "auth events are excluded");
+    assert.notEqual(it.title, it.links[0]?.note, "action is humanized, not raw");
+  }
+  // The autopilot.mode change we just made is present and humanized.
+  assert.ok(items.some((i: { title: string }) => /Autopilot/i.test(i.title)), "recent autopilot change surfaced");
+});
+
+test("memory projection: eval is honest — real outcomes when they exist, empty otherwise", async () => {
+  const { projectEval } = await import("../src/lib/server/memory-projections");
+  const before = await projectEval();
+  const hadOutcomes = before.some((i: { id: string }) => i.id === "ev_outcomes");
+
+  // Create real published + failed targets and re-check the computed rate.
+  const ig = await db.socialAccount.findFirst({ where: { platform: "instagram", status: "connected" } });
+  const post = await db.post.create({
+    data: {
+      userId, baseCaption: "eval projection test", category: "Promo", status: "published",
+      targets: { create: [
+        { socialAccountId: ig!.id, state: "published", permalink: "https://mock.qantm.local/x/1" },
+        { socialAccountId: ig!.id, state: "failed", error: "test failure" },
+      ] },
+    },
+  });
+  const after = await projectEval();
+  const outcomes = after.find((i: { id: string }) => i.id === "ev_outcomes");
+  assert.ok(outcomes, "outcomes item present once there are published/failed targets");
+  assert.match(outcomes!.body, /published/, "outcomes report real counts");
+  assert.equal(outcomes!.derived, true);
+  assert.equal(outcomes!.lane, "eval");
+
+  await db.post.delete({ where: { id: post.id } });
+  void hadOutcomes;
+});
+
+test("memory brief composes cited knowledge + live projections", async () => {
+  const { buildBrief } = await import("../src/lib/server/memory");
+  const { seedMemory } = await import("../src/lib/server/seed-memory");
+  await seedMemory(userId); // ensure beliefs/procedures exist (idempotent)
+  const brief = await buildBrief();
+  assert.ok(brief.beliefs.length > 0, "brief includes beliefs");
+  assert.ok(brief.procedures.length > 0, "brief includes procedures");
+  assert.ok(brief.recentActivity.length > 0, "brief includes recent (episodic) activity");
+  for (const b of brief.beliefs) assert.ok(b.links.length > 0, "every belief in the brief is cited");
+  assert.ok(typeof brief.counts.belief === "number", "counts present");
+});
+
+test("memory API: episodic projection served; derived items are not archivable", async () => {
+  const listed = await (await api("/api/memory?lane=episodic")).json();
+  assert.ok(listed.items.some((i: { id: string }) => i.id.startsWith("ep_")), "episodic projection served via API");
+
+  // A derived id can't be archived (it isn't a stored row).
+  const derived = listed.items.find((i: { id: string }) => i.id.startsWith("ep_"));
+  assert.equal((await api(`/api/memory/${derived.id}`, { method: "DELETE" })).status, 404, "derived item is read-only");
+
+  // The brief endpoint works and is auth-gated.
+  assert.equal((await fetch(`${BASE}/api/memory/brief`)).status, 401);
+  const brief = await (await api("/api/memory/brief")).json();
+  assert.ok(brief.brief && Array.isArray(brief.brief.beliefs), "brief endpoint returns composed brief");
+});

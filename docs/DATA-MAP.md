@@ -30,7 +30,8 @@ the whole platform reads from.
 | **Notification type** | publish_failed, review_ready | `taxonomy.NOTIFY_TYPE_KEYS` + `server/notifications.NOTIFY_TYPES` | |
 | **Notification level** | info, warn, error | `taxonomy.NOTIFY_LEVELS` | |
 | **Asset type / status** | image·video / ready·processing·failed | `Asset` model | |
-| **Audit action** | 43 actions across 11 domains | `taxonomy.AUDIT_ACTIONS` | See §5. The registry test asserts every `audit("…")` call site uses a registered action. |
+| **Memory lane** | episodic, semantic, concept, procedural, belief, eval, distillate | `taxonomy.MEMORY_LANES` / `MemoryItem.lane` | belief & distillate must cite evidence to be active (`EVIDENCE_REQUIRED_LANES`) |
+| **Audit action** | every action across all domains | `taxonomy.AUDIT_ACTIONS` | See §5. The registry test asserts every `audit(…)` call site — including ternary/dynamic forms — uses a registered action. |
 
 ### Provenance — the honesty field
 
@@ -74,7 +75,7 @@ contents, schema, and a merge plan into the existing `MetricSnapshot`/`FeedItem`
 structures — before any of it is written down. Until then there is nothing to
 consolidate.
 
-## 3. Core data model (15 Prisma models)
+## 3. Core data model (17 Prisma models)
 
 `User` (single operator) → owns `SocialAccount`, `Post`, `Asset`, `Category`,
 `Credential`, `Notification`, `FeedSource`, `AuditEvent`.
@@ -85,8 +86,13 @@ Post ──< PostTarget >── SocialAccount ──? VaultSecret
               ├──< PublishJob            (the durable queue)
               └──< MetricSnapshot        (real-response-only insights, time series)
 FeedSource ──< FeedItem                  (RSS/trending)
+MemoryItem ──< MemoryLink                 (org memory + cited evidence; FTS5 index)
 Setting                                  (KV: kill switch, autopilot)
 ```
+
+Memory (`MemoryItem`/`MemoryLink`, FTS5) is the organizational-memory substrate
+— see docs/MEMORY-PLAN.md. Episodic/Eval lanes are live projections over
+`AuditEvent`/`PostTarget`/`MetricSnapshot`, not copies.
 
 - `Post.category` is a **name string**, not an FK to `Category` (delete-safe).
 - `PostTarget` carries the state machine, permalink, `externalMediaId`, error.
@@ -116,8 +122,8 @@ Every audited action, grouped (source of truth: `taxonomy.AUDIT_ACTIONS`):
 
 - **auth** — setup, setup.confirmed, setup.throttled, login, login.failed, login.throttled, verify, verify.failed, verify.replayed, verify.throttled, logout, dev_login
 - **account** — connect, connect_failed, disconnect, pause, resume, remove
-- **publish** — success, retry, failed
-- **post** — approve, cancel, discard, edit, reschedule
+- **publish** — success, retry, failed, pause_all, resume_all
+- **post** — schedule, draft, approve, cancel, discard, edit, reschedule
 - **autopilot** — on, off, mode
 - **asset** — upload, transcoded, transcode_failed, delete
 - **category** — create, update, delete
@@ -125,8 +131,9 @@ Every audited action, grouped (source of truth: `taxonomy.AUDIT_ACTIONS`):
 - **feed** — add, toggle, delete
 - **notify** — prefs
 - **metrics** — collected, rate_limited
+- **memory** — create, update, archive, link, seed
 
-## 6. API surface (39 routes)
+## 6. API surface (43 routes)
 
 Auth = requires a full session (`readSession`). "handshake" = part of the login
 flow (password/TOTP, pre-session). "signed" = gated by an HMAC signature, not a
@@ -154,6 +161,8 @@ session. Verified against `src/app/api/**/route.ts`.
 **Notifications** — `GET /notifications`; `POST /notifications/read`; `GET,PUT /notifications/prefs`.
 
 **Feeds (trending)** — `GET,POST /feeds`; `PATCH,DELETE /feeds/:id`; `POST /feeds/refresh`.
+
+**Memory** — `GET,POST /memory` (list / FTS search / author; episodic+eval lanes are live projections); `GET,PATCH,DELETE /memory/:id` (DELETE = archive); `POST /memory/:id/link` (cite evidence); `GET /memory/brief` (onboarding brief).
 
 **Insights & ops** — `GET /metrics` (auth); `GET /health` *(public liveness/readiness — secret-free)*.
 

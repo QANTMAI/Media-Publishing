@@ -167,6 +167,9 @@ export interface MemoryView {
   createdAt: string;
   updatedAt: string;
   links: { id: string; kind: string; ref: string; note: string | null }[];
+  /** True for read-only PROJECTIONS over existing stores (episodic/eval) —
+   * derived live from the audit log / metrics, not editable or archivable. */
+  derived?: boolean;
 }
 
 function shape(i: {
@@ -249,4 +252,45 @@ export async function memoryLaneCounts(): Promise<Record<string, number>> {
   const out: Record<string, number> = {};
   for (const r of rows) out[r.lane] = r._count;
   return out;
+}
+
+export interface OnboardingBrief {
+  generatedAt: string;
+  counts: Record<string, number>;
+  beliefs: MemoryView[];
+  procedures: MemoryView[];
+  concepts: MemoryView[];
+  semantic: MemoryView[];
+  distillates: MemoryView[];
+  recentActivity: MemoryView[]; // episodic projection
+  outcomes: MemoryView[]; // eval projection
+}
+
+/** Compose the onboarding brief — "what the org knows" — from cited stored
+ * memory plus live episodic/eval projections. Template-composed and fully real
+ * (no AI in Phase 2); an AI narrative can layer on later, gated on the key. */
+export async function buildBrief(): Promise<OnboardingBrief> {
+  const { projectEpisodic, projectEval } = await import("./memory-projections");
+  const [counts, beliefs, procedures, concepts, semantic, distillates, recentActivity, outcomes] = await Promise.all([
+    memoryLaneCounts(),
+    listMemory({ lane: "belief" }),
+    listMemory({ lane: "procedural" }),
+    listMemory({ lane: "concept" }),
+    listMemory({ lane: "semantic" }),
+    listMemory({ lane: "distillate" }),
+    projectEpisodic(12),
+    projectEval(),
+  ]);
+  return {
+    // Stamped by the API layer (Date is unavailable in some contexts); default here.
+    generatedAt: new Date().toISOString(),
+    counts,
+    beliefs,
+    procedures,
+    concepts,
+    semantic,
+    distillates,
+    recentActivity,
+    outcomes,
+  };
 }

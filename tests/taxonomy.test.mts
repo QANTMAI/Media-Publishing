@@ -82,14 +82,32 @@ function srcFiles(dir: string, acc: string[] = []): string[] {
 test("taxonomy: every audit() action emitted in src is in the registry (no drift)", () => {
   const files = srcFiles(join(process.cwd(), "src"));
   const emitted = new Set<string>();
-  const re = /audit\(\s*["']([a-z_.]+)["']/g;
+  // Extract EVERY dotted action-string literal inside an audit(...) first
+  // argument — including ternary branches like audit(cond ? "a.b" : "c.d", …).
+  // A previous version only matched a quote immediately after audit(, so
+  // ternary-emitted actions (post.schedule, publish.pause_all, …) slipped
+  // through unregistered. Now: grab the audit( call head, then pull all
+  // domain.action literals out of it.
+  const callRe = /\baudit\(([^;]*?)(?:,\s*\{|\)\s*[;,])/gs;
+  const actionRe = /["']([a-z][a-z_]*(?:\.[a-z_]+)+)["']/g;
   for (const f of files) {
     const text = readFileSync(f, "utf8");
-    for (const m of text.matchAll(re)) emitted.add(m[1]);
+    for (const call of text.matchAll(callRe)) {
+      for (const a of call[1].matchAll(actionRe)) emitted.add(a[1]);
+    }
   }
-  assert.ok(emitted.size >= 40, `expected many audit actions, found ${emitted.size}`);
+  assert.ok(emitted.size >= 44, `expected many audit actions, found ${emitted.size}`);
+  // The ternary-emitted ones MUST now be seen (guards the regex itself).
+  for (const a of ["post.schedule", "publish.pause_all", "publish.resume_all", "post.draft"]) {
+    assert.ok(emitted.has(a), `regex must capture ternary action ${a}`);
+  }
   const unregistered = [...emitted].filter((a) => !T.isKnownAuditAction(a));
   assert.deepEqual(unregistered, [], `unregistered audit actions — add them to taxonomy AUDIT_ACTIONS: ${unregistered.join(", ")}`);
+  // Dynamic (template-literal) audit actions can't be statically verified —
+  // forbid them so nothing evades this check.
+  for (const f of files) {
+    assert.ok(!/\baudit\(\s*`/.test(readFileSync(f, "utf8")), `template-literal audit() in ${f} — use string literals so the registry can govern it`);
+  }
   // Registry has no duplicates.
   assert.equal(T.ALL_AUDIT_ACTIONS.length, new Set(T.ALL_AUDIT_ACTIONS).size, "duplicate audit action in registry");
 });

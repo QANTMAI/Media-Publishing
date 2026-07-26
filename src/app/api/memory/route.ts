@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import { readSession } from "@/lib/server/session";
 import { MemoryError, createMemory, listMemory, memoryLaneCounts, searchMemory } from "@/lib/server/memory";
+import { projectEpisodic, projectEval } from "@/lib/server/memory-projections";
 
 /** GET /api/memory — list active memory (optionally by ?lane=), or full-text
- * recall with ?q=. Always returns per-lane counts for the overview. */
+ * recall with ?q=. The episodic & eval lanes are live PROJECTIONS over the
+ * audit log / metrics (appended after any curated items). Always returns
+ * per-lane counts for the overview. */
 export async function GET(req: Request) {
   const userId = await readSession();
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -13,7 +16,12 @@ export async function GET(req: Request) {
   const lane = url.searchParams.get("lane") ?? undefined;
   const status = url.searchParams.get("status") ?? undefined;
 
-  const items = q ? await searchMemory(q, { lane }) : await listMemory({ lane, status });
+  // FTS covers curated memory only; projections are browse-not-search.
+  let items = q ? await searchMemory(q, { lane }) : await listMemory({ lane, status });
+  if (!q) {
+    if (lane === "episodic") items = [...items, ...(await projectEpisodic())];
+    else if (lane === "eval") items = [...items, ...(await projectEval())];
+  }
   return NextResponse.json({ items, counts: await memoryLaneCounts(), query: q ?? null });
 }
 

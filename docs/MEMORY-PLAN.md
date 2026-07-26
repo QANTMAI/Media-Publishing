@@ -135,8 +135,15 @@ MemoryTag                        -- cross-lane linking (platform, category, camp
   (cited). Safety guard rejects secret-shaped content; belief/distillate can't
   go active without evidence. Episodic/Eval *projections* over existing stores
   land with Phase 2. 68/68 tests.
-- **Phase 2 — Recall & onboarding:** FTS5 search + the onboarding brief
-  (template-composed, cited).
+- **Phase 2 — Recall & onboarding: ✅ SHIPPED.** Episodic & Eval are live
+  PROJECTIONS (memory-projections.ts) — Episodic humanizes the audit log
+  (auth noise excluded, each item cites its audit row); Eval computes real
+  publish outcomes + metric aggregates, honest-empty when nothing has
+  published. Served through `/api/memory?lane=episodic|eval` (appended after
+  curated items; derived items are read-only). The onboarding brief
+  (`GET /api/memory/brief`, "Onboarding brief" button) is template-composed
+  from cited beliefs/procedures/concepts/facts + live activity + outcomes.
+  72/72 tests.
 - **Phase 3 — Distillate automation:** AI-proposed, human-approved, evidence-
   cited insights over Episodic+Eval (gated on the Anthropic key).
 - **Phase 4 — Multi-user/RBAC:** only if C1 is resolved that direction.

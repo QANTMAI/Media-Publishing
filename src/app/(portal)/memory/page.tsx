@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Search, Plus, Archive, X as XIcon } from "lucide-react";
+import { Search, Plus, Archive, BookOpen } from "lucide-react";
 import { usePortal } from "@/lib/store";
 import { MEMORY_LANES, MEMORY_LINK_KINDS, EVIDENCE_REQUIRED_LANES } from "@/lib/taxonomy";
 
@@ -23,6 +23,19 @@ interface Item {
   createdAt: string;
   updatedAt: string;
   links: Link[];
+  derived?: boolean;
+}
+
+interface Brief {
+  generatedAt: string;
+  counts: Record<string, number>;
+  beliefs: Item[];
+  procedures: Item[];
+  concepts: Item[];
+  semantic: Item[];
+  distillates: Item[];
+  recentActivity: Item[];
+  outcomes: Item[];
 }
 
 const LANE_LABEL: Record<string, string> = {
@@ -55,6 +68,16 @@ export default function MemoryPage() {
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({ ...BLANK });
   const [saving, setSaving] = useState(false);
+  const [brief, setBrief] = useState<Brief | null>(null);
+  const [briefOpen, setBriefOpen] = useState(false);
+
+  const openBrief = async () => {
+    setBriefOpen(true);
+    if (!brief) {
+      const res = await fetch("/api/memory/brief");
+      if (res.ok) setBrief((await res.json()).brief);
+    }
+  };
 
   const load = async (opts: { q?: string; lane?: string | null } = {}) => {
     const p = new URLSearchParams();
@@ -130,7 +153,12 @@ export default function MemoryPage() {
 
   return (
     <div>
-      <p className="kick">Organizational memory · {total} active across {Object.keys(counts).length} lanes</p>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <p className="kick">Organizational memory · {total} active across {Object.keys(counts).length} lanes</p>
+        <button className="btn btn-secondary" onClick={openBrief} style={{ fontSize: 12 }}>
+          <BookOpen size={14} /> Onboarding brief
+        </button>
+      </div>
 
       {/* Lane overview + filter */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
@@ -221,11 +249,16 @@ export default function MemoryPage() {
             <div key={it.id} style={{ padding: "14px 18px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                 <span className="tag" style={{ background: LANE_COLOR[it.lane], color: "#fff", fontSize: 10 }}>{LANE_LABEL[it.lane]}</span>
+                {it.derived && <span className="tag tag-outline" style={{ fontSize: 10 }} title="Derived live from the audit log / metrics">live</span>}
                 {it.status !== "active" && <span className="tag tag-outline" style={{ fontSize: 10 }}>{it.status}</span>}
                 <span style={{ fontWeight: 700, fontSize: 14, flex: 1 }}>{it.title}</span>
-                <button className="btn btn-ghost" onClick={() => archive(it.id)} title="Archive" aria-label={`Archive ${it.title}`} style={{ padding: "2px 8px" }}>
-                  <Archive size={14} />
-                </button>
+                {it.derived ? (
+                  <span style={{ fontSize: 11, color: "var(--color-neutral-500)" }}>{new Date(it.updatedAt).toLocaleDateString()}</span>
+                ) : (
+                  <button className="btn btn-ghost" onClick={() => archive(it.id)} title="Archive" aria-label={`Archive ${it.title}`} style={{ padding: "2px 8px" }}>
+                    <Archive size={14} />
+                  </button>
+                )}
               </div>
               <div style={{ fontSize: 13, color: "var(--color-neutral-800)", whiteSpace: "pre-wrap" }}>{it.body}</div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8, alignItems: "center" }}>
@@ -245,6 +278,65 @@ export default function MemoryPage() {
           ))}
         </div>
       )}
+
+      {/* ── Onboarding brief ── */}
+      {briefOpen && (
+        <div className="dialog-backdrop" onClick={() => setBriefOpen(false)}>
+          <div
+            className="dialog"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            style={{ maxWidth: 720, width: "92%", maxHeight: "86vh", display: "flex", flexDirection: "column" }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "2px solid var(--color-text)" }}>
+              <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 17 }}>Onboarding brief</div>
+              <button className="btn btn-ghost" onClick={() => setBriefOpen(false)}>Close</button>
+            </div>
+            <div style={{ overflowY: "auto", padding: 20 }}>
+              {!brief ? (
+                <div style={{ fontSize: 13, color: "var(--color-neutral-600)" }}>Composing from cited memory + live activity…</div>
+              ) : (
+                <>
+                  <p style={{ margin: "0 0 16px", fontSize: 13, color: "var(--color-neutral-700)" }}>
+                    Everything the org knows — drawn from cited memory and live activity. This is what onboards a new steward.
+                  </p>
+                  <BriefSection title="Beliefs — how we operate" items={brief.beliefs} />
+                  <BriefSection title="Procedures — how we do it" items={brief.procedures} />
+                  <BriefSection title="Concepts" items={brief.concepts} />
+                  <BriefSection title="Facts" items={brief.semantic} />
+                  <BriefSection title="Learnings (distilled)" items={brief.distillates} />
+                  <BriefSection title="Outcomes" items={brief.outcomes} />
+                  <BriefSection title="Recent activity" items={brief.recentActivity} compact />
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BriefSection({ title, items, compact }: { title: string; items: Item[]; compact?: boolean }) {
+  if (!items.length) return null;
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <p className="kick" style={{ marginBottom: 8 }}>{title}</p>
+      <div style={{ display: "flex", flexDirection: "column", gap: compact ? 4 : 10 }}>
+        {items.map((it) => (
+          <div key={it.id}>
+            <div style={{ fontWeight: 600, fontSize: 13 }}>{it.title}</div>
+            {!compact && <div style={{ fontSize: 12.5, color: "var(--color-neutral-800)", whiteSpace: "pre-wrap" }}>{it.body}</div>}
+            {!compact && it.links.length > 0 && (
+              <div style={{ fontSize: 11, color: "var(--color-neutral-600)", marginTop: 2 }}>
+                cites: {it.links.map((l) => `${l.kind}:${l.ref}`).join(", ")}
+              </div>
+            )}
+            {compact && <span style={{ fontSize: 11, color: "var(--color-neutral-500)", marginLeft: 8 }}>{it.body}</span>}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
