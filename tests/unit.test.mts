@@ -285,6 +285,20 @@ const PROD_BASE = {
   OAUTH_MOCK: "0",
 } as Record<string, string>;
 
+// ── Brand voice (AI-1) — pure fingerprint prompt builder ───────────────────
+const BV = await import("../src/lib/server/brand-voice");
+
+test("brand voice: fingerprint prompt embeds the guide + numbered corpus; provisional when empty", () => {
+  const p = BV.buildFingerprintPrompt("Tone: warm", ["first post", "second post"]);
+  assert.match(p, /Tone: warm/);
+  assert.match(p, /\[1\] first post/);
+  assert.match(p, /\[2\] second post/);
+  const empty = BV.buildFingerprintPrompt("", []);
+  assert.match(empty, /No past posts|provisional/i, "empty corpus → provisional, grounded only in the guide");
+  assert.equal(BV.FINGERPRINT_SCHEMA.required[0], "fingerprint");
+  assert.ok(BV.MIN_CORPUS >= 1);
+});
+
 test("config: YouTube OAuth is all-or-none (partial = hard error)", () => {
   const partial = checkConfig({ ...PROD_BASE, YOUTUBE_CLIENT_ID: "cid" });
   assert.ok(partial.errors.some((e) => /YouTube OAuth is partially configured/.test(e)), "partial YOUTUBE_* must error");

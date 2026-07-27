@@ -1709,3 +1709,40 @@ test("PostTarget uniqueness: a duplicate (post, account) target is rejected at t
     await db.post.delete({ where: { id: post.id } }).catch(() => {});
   }
 });
+
+// ── Brand voice (AI-1) ─────────────────────────────────────────────────────
+test("brand voice: guide persists (auth-gated); analyze is an honest no-op without an Anthropic key", async () => {
+  assert.equal((await fetch(`${BASE}/api/brand-voice`)).status, 401);
+  const put = await api("/api/brand-voice", {
+    method: "PUT",
+    body: JSON.stringify({ tone: "warm, direct", dos: "lead with the outcome", bannedWords: "synergy, leverage" }),
+  });
+  assert.equal(put.status, 200);
+  const got = await (await api("/api/brand-voice")).json();
+  assert.equal(got.voice.tone, "warm, direct");
+  assert.equal(got.voice.bannedWords, "synergy, leverage");
+
+  // Analyze (billable) is auth-gated and a clean no-op without a key — never a fabricated fingerprint.
+  assert.equal((await fetch(`${BASE}/api/brand-voice/analyze`, { method: "POST" })).status, 401);
+  const analyze = await api("/api/brand-voice/analyze", { method: "POST" });
+  assert.equal(analyze.status, 200, "no-op is a state, not an error");
+  const d = await analyze.json();
+  assert.equal(d.ok, false);
+  assert.equal(d.reason, "no_anthropic_key");
+
+  await db.brandVoice.deleteMany({ where: { userId } }).catch(() => {});
+});
+
+test("brand voice: retrieval corpus is the operator's own posts, excluding autopilot canned text", async () => {
+  const { buildVoiceCorpus } = await import("../src/lib/server/brand-voice");
+  const real = await db.post.create({ data: { userId, baseCaption: "a genuinely authored caption about our spring launch", category: "Promo", status: "draft" } });
+  const canned = await db.post.create({ data: { userId, baseCaption: "Draft · 5 styling tips", category: "Educational", status: "draft", source: "autopilot" } });
+  try {
+    const corpus = await buildVoiceCorpus(userId, 50);
+    assert.ok(corpus.includes("a genuinely authored caption about our spring launch"), "real (manual) post is in the corpus");
+    assert.ok(!corpus.some((c: string) => c.startsWith("Draft ·")), "autopilot canned drafts are excluded");
+  } finally {
+    await db.post.delete({ where: { id: real.id } }).catch(() => {});
+    await db.post.delete({ where: { id: canned.id } }).catch(() => {});
+  }
+});

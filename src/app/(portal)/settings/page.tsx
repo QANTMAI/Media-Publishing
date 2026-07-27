@@ -98,6 +98,9 @@ export default function SettingsPage() {
         </div>
       </section>
 
+      {/* ── Brand voice (AI-1 foundation) ── */}
+      <BrandVoiceCard />
+
       {/* ── Trend sources (RSS/Atom) ── */}
       <FeedSourcesCard />
 
@@ -113,6 +116,121 @@ export default function SettingsPage() {
       {/* ── Security activity (projection over the audit log) ── */}
       <SecurityActivityCard />
     </div>
+  );
+}
+
+interface Voice {
+  tone: string;
+  audience: string;
+  dos: string;
+  donts: string;
+  bannedWords: string;
+  sampleHooks: string;
+  fingerprint: string | null;
+  fingerprintAt: string | null;
+  updatedAt: string | null;
+}
+const BLANK_VOICE: Voice = { tone: "", audience: "", dos: "", donts: "", bannedWords: "", sampleHooks: "", fingerprint: null, fingerprintAt: null, updatedAt: null };
+
+function BrandVoiceCard() {
+  const notify = usePortal((s) => s.notify);
+  const [voice, setVoice] = useState<Voice | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/brand-voice")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d && !cancelled) setVoice(d.voice);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const set = (k: keyof Voice, v: string) => setVoice((cur) => ({ ...(cur ?? BLANK_VOICE), [k]: v }));
+
+  const save = async () => {
+    if (!voice) return;
+    setSaving(true);
+    const res = await fetch("/api/brand-voice", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tone: voice.tone, audience: voice.audience, dos: voice.dos,
+        donts: voice.donts, bannedWords: voice.bannedWords, sampleHooks: voice.sampleHooks,
+      }),
+    });
+    setSaving(false);
+    if (res.ok) {
+      setVoice((await res.json()).voice);
+      notify("Brand voice saved");
+    } else notify("Could not save brand voice");
+  };
+
+  const analyze = async () => {
+    setAnalyzing(true);
+    const res = await fetch("/api/brand-voice/analyze", { method: "POST" });
+    setAnalyzing(false);
+    const d = await res.json().catch(() => ({}));
+    if (d.ok) {
+      setVoice((cur) => (cur ? { ...cur, fingerprint: d.fingerprint, fingerprintAt: new Date().toISOString() } : cur));
+      notify(`Voice fingerprint updated from ${d.corpus} of your own post${d.corpus === 1 ? "" : "s"}`);
+    } else if (d.reason === "no_anthropic_key") {
+      notify("Add your Anthropic key in Integrations & keys to analyze your voice");
+    } else if (d.reason === "insufficient_input") {
+      notify("Write a few posts or fill in the guide first — nothing real to analyze yet");
+    } else if (d.reason === "rate_limited") {
+      notify("You're analyzing too often — try again shortly");
+    } else if (d.reason === "api_error") {
+      notify(`Analysis failed: ${d.status ?? "provider error"}`);
+    } else notify("Could not analyze your voice");
+  };
+
+  return (
+    <section>
+      <p className="kick">Brand voice</p>
+      <div className="stack stack-strong" style={{ padding: "18px 20px" }}>
+        {voice === null ? (
+          <div style={{ fontSize: 13, color: "var(--color-neutral-600)" }}>Loading…</div>
+        ) : (
+          <>
+            <div style={{ fontSize: 12.5, color: "var(--color-neutral-700)", marginBottom: 12 }}>
+              This guide conditions AI drafts (and, later, repurposing & trend suggestions) — used as guidance plus retrieval of
+              your own posts, never a fine-tuned model.
+            </div>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Tone</label>
+            <input className="input" value={voice.tone} placeholder="e.g. warm, direct, a little wry" onChange={(e) => set("tone", e.target.value)} style={{ width: "100%", marginBottom: 10 }} />
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Audience</label>
+            <input className="input" value={voice.audience} placeholder="who you're writing for" onChange={(e) => set("audience", e.target.value)} style={{ width: "100%", marginBottom: 10 }} />
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Do</label>
+            <textarea className="input" value={voice.dos} placeholder="one guideline per line" onChange={(e) => set("dos", e.target.value)} rows={3} style={{ width: "100%", marginBottom: 10, resize: "vertical" }} />
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Don&apos;t</label>
+            <textarea className="input" value={voice.donts} placeholder="one guideline per line" onChange={(e) => set("donts", e.target.value)} rows={3} style={{ width: "100%", marginBottom: 10, resize: "vertical" }} />
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Banned words / phrases</label>
+            <input className="input" value={voice.bannedWords} placeholder="comma, separated" onChange={(e) => set("bannedWords", e.target.value)} style={{ width: "100%", marginBottom: 10 }} />
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Sample hooks</label>
+            <textarea className="input" value={voice.sampleHooks} placeholder="opening lines you like — one per line" onChange={(e) => set("sampleHooks", e.target.value)} rows={3} style={{ width: "100%", marginBottom: 12, resize: "vertical" }} />
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save voice guide"}</button>
+              <button className="btn btn-secondary" onClick={analyze} disabled={analyzing} title="Distill a style fingerprint from your own posts (uses your Anthropic key)">
+                {analyzing ? "Analyzing…" : "Analyze my voice"}
+              </button>
+            </div>
+            {voice.fingerprint && (
+              <div style={{ marginTop: 14, padding: "12px 14px", borderRadius: 12, background: "var(--color-neutral-100)", border: "1px solid var(--color-divider)" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--color-neutral-600)", marginBottom: 6 }}>
+                  AI style fingerprint{voice.fingerprintAt ? ` · ${new Date(voice.fingerprintAt).toLocaleDateString()}` : ""}
+                </div>
+                <div style={{ fontSize: 13, color: "var(--color-neutral-800)", whiteSpace: "pre-wrap" }}>{voice.fingerprint}</div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </section>
   );
 }
 

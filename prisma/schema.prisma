@@ -31,6 +31,29 @@ model User {
   notifications Notification[]
   feedSources   FeedSource[]
   memoryItems   MemoryItem[]
+  brandVoice    BrandVoice?
+}
+
+// AI-1 — Brand voice foundation. One editable, structured voice guide per
+// operator + an OPTIONAL AI-distilled "fingerprint" (a style descriptor derived
+// from the operator's OWN real posts, cached). This is prompt+retrieval voice
+// conditioning — NOT a fine-tuned model. Downstream AI (repurposing, trends)
+// reads the guide + fingerprint + a retrieved corpus of the operator's posts.
+model BrandVoice {
+  id            String    @id @default(cuid())
+  userId        String    @unique
+  tone          String? // free-text tone descriptors (e.g. "warm, direct, a little wry")
+  audience      String? // who the content is for
+  dos           String? // newline-separated "do" guidance
+  donts         String? // newline-separated "don't" guidance
+  bannedWords   String? // comma-separated words/phrases to avoid
+  sampleHooks   String? // newline-separated example opening hooks the operator likes
+  fingerprint   String? // AI-distilled style descriptor (cached; derived from real posts)
+  fingerprintAt DateTime? // when the fingerprint was last distilled
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // ── Organizational memory ("The Media Channel") — durable, org-scoped

@@ -197,6 +197,7 @@ export const AUDIT_ACTIONS = {
   notify: ["notify.prefs"],
   metrics: ["metrics.collected", "metrics.rate_limited"],
   memory: ["memory.create", "memory.update", "memory.archive", "memory.link", "memory.seed", "memory.distill"],
+  brand_voice: ["brand_voice.update", "brand_voice.analyze"],
 } as const;
 
 /** Flat set of every registered audit action. */
