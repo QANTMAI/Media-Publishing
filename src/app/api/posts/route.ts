@@ -42,6 +42,7 @@ export async function GET() {
       error: t.error,
       assetIds: t.assetIds ? t.assetIds.split(",") : [],
       autopilot: t.post.source === "autopilot",
+      source: t.post.source, // "manual" | "autopilot" | "repurpose" — drives the review inbox
       // First-class provenance — any non-"real" account is flagged in the UI
       // and never reaches a live platform (was: fragile label === "demo",
       // which silently missed mock connections).

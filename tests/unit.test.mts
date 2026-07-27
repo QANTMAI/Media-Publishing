@@ -299,6 +299,46 @@ test("brand voice: fingerprint prompt embeds the guide + numbered corpus; provis
   assert.ok(BV.MIN_CORPUS >= 1);
 });
 
+// ── Repurpose (AI-2) — pure spec/prompt/validation ────────────────────────
+const RP = await import("../src/lib/server/repurpose");
+
+test("repurpose: channelSpec resolves publishable platforms with their char limit", () => {
+  assert.equal(RP.channelSpec("instagram")?.limit, 2200);
+  assert.equal(RP.channelSpec("x")?.limit, 280);
+  assert.equal(RP.channelSpec("linkedin")?.name, "LinkedIn");
+  assert.equal(RP.channelSpec("threads"), null, "non-publishable platform has no spec");
+});
+
+test("repurpose: prompt grounds in the source and lists each channel + limit + voice", () => {
+  const specs = [RP.channelSpec("x"), RP.channelSpec("linkedin")].filter(Boolean) as NonNullable<ReturnType<typeof RP.channelSpec>>[];
+  const p = RP.buildRepurposePrompt("my source content", "Tone: warm", ["a past post"], specs);
+  assert.match(p, /repurpose ONLY this/i);
+  assert.match(p, /my source content/);
+  assert.match(p, /x \(≤280/);
+  assert.match(p, /linkedin \(≤3000/);
+  assert.match(p, /Tone: warm/);
+});
+
+test("repurpose: validateChannels maps captions, flags over-limit, drops unrequested + warns on missing", () => {
+  const specs = [RP.channelSpec("x"), RP.channelSpec("linkedin"), RP.channelSpec("instagram")].filter(Boolean) as NonNullable<ReturnType<typeof RP.channelSpec>>[];
+  const { channels, warnings } = RP.validateChannels(
+    {
+      channels: [
+        { platform: "x", caption: "a".repeat(300) }, // over 280
+        { platform: "linkedin", caption: "fits fine" },
+        { platform: "facebook", caption: "not requested" }, // dropped — not in specs
+      ],
+    },
+    specs,
+  );
+  assert.deepEqual(channels.map((c) => c.platform).sort(), ["linkedin", "x"]);
+  assert.equal(channels.find((c) => c.platform === "x")?.overLimit, true);
+  assert.equal(channels.find((c) => c.platform === "linkedin")?.overLimit, false);
+  assert.ok(warnings.some((w) => /over the 280/.test(w)), "over-limit is flagged");
+  assert.ok(warnings.some((w) => /No caption generated for Instagram/.test(w)), "missing channel warns, not silent");
+  assert.ok(!channels.some((c) => c.platform === "facebook"), "unrequested platform dropped");
+});
+
 test("config: YouTube OAuth is all-or-none (partial = hard error)", () => {
   const partial = checkConfig({ ...PROD_BASE, YOUTUBE_CLIENT_ID: "cid" });
   assert.ok(partial.errors.some((e) => /YouTube OAuth is partially configured/.test(e)), "partial YOUTUBE_* must error");

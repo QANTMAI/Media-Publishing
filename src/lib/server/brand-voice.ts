@@ -95,7 +95,10 @@ export async function upsertBrandVoice(userId: string, input: BrandVoiceInput): 
  * operator hasn't written anything yet. */
 export async function buildVoiceCorpus(userId: string, limit = CORPUS_LIMIT): Promise<string[]> {
   const posts = await db.post.findMany({
-    where: { userId, source: { not: "autopilot" } },
+    // ONLY genuinely operator-authored posts are voice ground-truth — exclude
+    // AI-generated origins (autopilot canned, repurpose output) so the corpus
+    // can't drift toward the model's own voice over time.
+    where: { userId, source: "manual" },
     orderBy: { createdAt: "desc" },
     take: limit * 2, // over-fetch; we filter/dedupe below
     select: { baseCaption: true },

@@ -95,6 +95,9 @@ export interface PostView {
   permalink: string | null;
   error: string | null;
   autopilot: boolean;
+  /** Post origin: "manual" | "autopilot" | "repurpose". AI-generated drafts
+   * (autopilot/repurpose) surface in the dashboard review inbox. */
+  source: string;
   /** Provenance of the targeted account: "real" reaches a live platform;
    * "mock"/"demo" never do and must be flagged in the UI. */
   provenance: AccountProvenance;

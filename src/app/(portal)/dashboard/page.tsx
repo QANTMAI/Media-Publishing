@@ -68,7 +68,8 @@ export default function DashboardPage() {
 
   // Autopilot review drafts land here (Phase B wires the real queue). For now
   // the empty state explains the drafts → review → approve flow honestly.
-  const reviewDrafts = posts.filter((p) => p.autopilot && p.status === "draft");
+  // AI-generated drafts awaiting review: autopilot plans + one-canvas repurposes.
+  const reviewDrafts = posts.filter((p) => p.status === "draft" && (p.autopilot || p.source === "repurpose"));
 
   const metric = (v: number | null | undefined) => (v == null ? "—" : v.toLocaleString());
 

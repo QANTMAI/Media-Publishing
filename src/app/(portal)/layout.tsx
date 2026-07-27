@@ -15,6 +15,7 @@ import { NotificationBell } from "@/components/NotificationBell";
 const NAV = [
   { href: "/dashboard", label: "Dashboard", title: "Dashboard" },
   { href: "/compose", label: "Compose", title: "Compose a post" },
+  { href: "/repurpose", label: "Repurpose", title: "One-canvas repurposing" },
   { href: "/calendar", label: "Calendar", title: "Content calendar" },
   { href: "/library", label: "Library", title: "Media library" },
   { href: "/accounts", label: "Accounts", title: "Connected accounts" },

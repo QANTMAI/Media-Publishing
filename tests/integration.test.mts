@@ -1746,3 +1746,41 @@ test("brand voice: retrieval corpus is the operator's own posts, excluding autop
     await db.post.delete({ where: { id: canned.id } }).catch(() => {});
   }
 });
+
+// ── Repurpose (AI-2) ───────────────────────────────────────────────────────
+test("repurpose: auth-gated; honest no-op without an Anthropic key", async () => {
+  assert.equal((await fetch(`${BASE}/api/repurpose`, { method: "POST", body: "{}" })).status, 401);
+  const bs = await db.socialAccount.findFirst({ where: { platform: "bluesky", status: "connected" } });
+  const res = await api("/api/repurpose", { method: "POST", body: JSON.stringify({ source: "our spring launch is live", accountIds: [bs!.id] }) });
+  assert.equal(res.status, 200, "no-op is a state, not an error");
+  const d = await res.json();
+  assert.equal(d.ok, false);
+  assert.equal(d.reason, "no_anthropic_key");
+});
+
+test("repurpose: persistDraft creates a review-inbox draft with per-channel captions", async () => {
+  const { persistDraft } = await import("../src/lib/server/repurpose");
+  const ig = await db.socialAccount.findFirst({ where: { platform: "instagram", status: "connected" } });
+  const x = await db.socialAccount.findFirst({ where: { platform: "x", status: "connected" } });
+  assert.ok(ig && x);
+  const { postId } = await persistDraft(userId, "canonical source", [
+    { accountId: ig!.id, caption: "IG version" },
+    { accountId: x!.id, caption: "X version" },
+  ]);
+  try {
+    const post = await db.post.findUnique({ where: { id: postId }, include: { targets: true } });
+    assert.equal(post!.source, "repurpose");
+    assert.equal(post!.status, "draft");
+    assert.equal(post!.targets.length, 2);
+    assert.ok(post!.targets.every((t) => t.state === "draft" && !!t.captionOverride), "per-channel captionOverrides set, all draft");
+    // Surfaces via the API with source="repurpose" (what drives the review inbox),
+    // and the per-channel captionOverride shows as the caption.
+    const listing = await (await api("/api/posts")).json();
+    const mine = listing.targets.filter((t: { postId: string }) => t.postId === postId);
+    assert.equal(mine.length, 2);
+    assert.ok(mine.every((t: { source: string }) => t.source === "repurpose"));
+    assert.deepEqual(mine.map((t: { caption: string }) => t.caption).sort(), ["IG version", "X version"]);
+  } finally {
+    await db.post.delete({ where: { id: postId } }).catch(() => {});
+  }
+});
