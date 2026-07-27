@@ -152,6 +152,49 @@ Notes:
 - GHCR packages are **private by default**; make the package public or grant
   pull access in the repo's *Packages* settings if another host needs to pull.
 
+## 5c. Render (Blueprint)
+
+`render.yaml` deploys the app to Render as a Docker web service with a
+persistent disk. Render builds the `Dockerfile` directly — no GHCR pull needed.
+
+**Deploy:**
+
+1. Render Dashboard → **New → Blueprint** → connect this repo. Render reads
+   `render.yaml`.
+2. It prompts for the three `sync: false` secrets. Generate each and paste it:
+   ```bash
+   openssl rand -base64 32   # SESSION_SECRET
+   openssl rand -base64 32   # STORAGE_SIGNING_KEY
+   openssl rand -base64 32   # VAULT_MASTER_KEY  (save this — see below)
+   ```
+3. **Apply** → Render builds the image, mounts the disk, and deploys. First
+   boot runs `prisma migrate deploy` automatically (entrypoint), then serves.
+4. Open the service URL and complete first-run operator setup (§4).
+
+**What `render.yaml` sets up:**
+
+- **Docker web service**, `plan: starter` (paid — required for the disk).
+- **Persistent disk** `qantm-data` at `/app/data`, holding **both** the SQLite
+  DB (`DATABASE_URL=file:/app/data/prod.db`) and uploaded media
+  (`STORAGE_DIR=/app/data/storage`), so nothing is lost on redeploy.
+- **Health check** at `/api/health`; **auto-deploy** on every push to `main`.
+- The container starts as root only to `chown` the freshly-mounted disk, then
+  drops to a non-root user (gosu) to run.
+
+**Cautions (real, not boilerplate):**
+
+- ⚠️ **A paid instance is mandatory.** Free/ephemeral Render instances have no
+  persistent disk — the database and all media are wiped on every deploy. The
+  blueprint pins `plan: starter` for this reason; do not downgrade it.
+- 🔑 **`VAULT_MASTER_KEY` is forever.** It decrypts every stored OAuth token and
+  API key. If it changes (or is lost), the vault is permanently unreadable —
+  every connected account must be re-linked. Store it in a password manager.
+- 💾 **A disk is not a backup.** It survives deploys, not disk failure or an
+  accidental service delete. Add Litestream (§3) and set `DB_BACKUP_CONFIGURED=1`
+  for off-box durability before relying on this in production.
+- 🔒 Never add `AUTH_DEV_BYPASS` to the Render environment. Sign-in there is the
+  real `/login` (password, plus TOTP if the operator enrolled it).
+
 ## 6. Reverse proxy & TLS
 
 - Terminate TLS at the proxy and forward to the app.

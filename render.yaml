@@ -1,0 +1,52 @@
+# Render Blueprint — deploys the QANTM Media Publishing Portal as a Docker web
+# service with a persistent disk for SQLite + uploaded media.
+#
+# To deploy: Render Dashboard → New → Blueprint → connect this repo. Render
+# reads this file and prompts for the three sync:false secrets before the first
+# deploy. See docs/DEPLOYMENT.md § "Render (Blueprint)".
+#
+# IMPORTANT: the persistent disk below requires a PAID instance type. On a free
+# / ephemeral instance the SQLite database AND all uploaded media are wiped on
+# every deploy and restart — do not run this app there.
+
+services:
+  - name: qantm-media-portal
+    type: web
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: ./
+    plan: starter            # paid; required for the persistent disk
+    region: oregon           # change to your nearest: ohio | virginia | frankfurt | singapore
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+
+    # DB + media live here so they survive deploys/restarts. A disk is not an
+    # off-box backup — add Litestream (docs/DEPLOYMENT.md §3) for real DR.
+    disk:
+      name: qantm-data
+      mountPath: /app/data
+      sizeGB: 5
+
+    envVars:
+      - key: DATABASE_URL
+        value: file:/app/data/prod.db
+      - key: STORAGE_DIR
+        value: /app/data/storage
+
+      # Secrets — you set these in the Render dashboard at Blueprint creation
+      # (prompted because sync:false). Never commit them.
+      #   SESSION_SECRET      : openssl rand -base64 32
+      #   STORAGE_SIGNING_KEY : openssl rand -base64 32
+      #   VAULT_MASTER_KEY    : openssl rand -base64 32   (EXACTLY 32 bytes b64)
+      # VAULT_MASTER_KEY must NEVER change once real data exists, or the
+      # credential vault becomes permanently unreadable. Save it somewhere safe.
+      - key: SESSION_SECRET
+        sync: false
+      - key: VAULT_MASTER_KEY
+        sync: false
+      - key: STORAGE_SIGNING_KEY
+        sync: false
+
+      # Publishing runs live (not mock). Do NOT set AUTH_DEV_BYPASS here.
+      - key: OAUTH_MOCK
+        value: "0"

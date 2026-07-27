@@ -55,8 +55,14 @@ ENV NODE_ENV=production \
     # same regardless of CWD. Mount a persistent volume at /app/data.
     DATABASE_URL="file:/app/data/prod.db"
 
-# Non-root runtime user; owns the app and the data volume mount point.
-RUN groupadd --system app && useradd --system --gid app --home-dir /app app \
+# Non-root runtime user + gosu for privilege drop. The container starts as root
+# only so the entrypoint can fix ownership of a freshly-mounted persistent disk
+# (Render/k8s bind mounts arrive root-owned), then drops to `app` to actually
+# run. gosu execs cleanly so signals reach the server for graceful shutdown.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gosu \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system app && useradd --system --gid app --home-dir /app app \
     && mkdir -p /app/data && chown -R app:app /app
 
 # Copy the built app + the exact node_modules the build produced (native
@@ -69,9 +75,9 @@ COPY --from=builder --chown=app:app /app/next.config.mjs ./next.config.mjs
 COPY --from=builder --chown=app:app /app/prisma ./prisma
 COPY --from=builder --chown=app:app /app/docker-entrypoint.sh ./docker-entrypoint.sh
 
-USER app
 VOLUME ["/app/data"]
 EXPOSE 3000
 
-# Applies migrations, then starts Next (which also boots the in-process worker).
+# Entrypoint (as root): chown the data volume, verify real secrets, then drop to
+# `app` (gosu) to run migrations + start Next (which boots the in-process worker).
 ENTRYPOINT ["./docker-entrypoint.sh"]
