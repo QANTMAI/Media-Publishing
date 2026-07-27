@@ -12,6 +12,7 @@
  *  - crash recovery: claims older than STALE_CLAIM_MS are re-eligible. */
 
 import { db } from "./db";
+import { log } from "./log";
 import { publishTarget, PermanentError } from "./publisher";
 import { killSwitchOn } from "./settings";
 import { audit } from "./audit";
@@ -109,7 +110,12 @@ async function processJob(jobId: string, postTargetId: string, attempts: number,
         // Leave the job claimed: the stale-claim reclaim will re-run it, and
         // the publisher's published-state check makes that re-run a no-op
         // once the target write above has landed.
-        console.error("CRITICAL: published but bookkeeping failed", { postTargetId, permalink, err });
+        log.error("CRITICAL publish bookkeeping failed after publish", {
+          event: "publish_bookkeeping_failed", // stable key for alerting
+          postTargetId,
+          permalink,
+          error: err,
+        });
         return;
       }
       await new Promise((r) => setTimeout(r, 250 * (i + 1)));
@@ -200,7 +206,7 @@ export function startWorker() {
         /* keep going until empty */
       }
     } catch (err) {
-      console.error("media worker cycle failed", err);
+      log.error("media worker cycle failed", { error: err });
     } finally {
       g.__qantmMediaBusy = false;
     }
@@ -217,27 +223,27 @@ export function startWorker() {
       // Hourly housekeeping: clear uploads that never completed, and vault
       // ciphertext nothing references anymore.
       if (cycles % 240 === 0) {
-        await sweepOrphanUploads().catch((err) => console.error("orphan sweep failed", err));
-        await sweepOrphanVaultSecrets().catch((err) => console.error("vault sweep failed", err));
+        await sweepOrphanUploads().catch((err) => log.error("orphan sweep failed", { error: err }));
+        await sweepOrphanVaultSecrets().catch((err) => log.error("vault sweep failed", { error: err }));
       }
       // Metrics pulls every 6h (IG insight data lags up to 48h — polling
       // faster buys nothing), first run ~5min after boot.
       if (cycles % 1440 === 20) {
-        await collectMetricsCycle().catch((err) => console.error("metrics cycle failed", err));
+        await collectMetricsCycle().catch((err) => log.error("metrics cycle failed", { error: err }));
       }
       // Trend/RSS feeds every ~3h, first run ~2.5min after boot. Matches the
       // "auto every 3h" the trending surface advertises.
       if (cycles % 720 === 10) {
-        await pollFeeds().catch((err) => console.error("feed poll failed", err));
+        await pollFeeds().catch((err) => log.error("feed poll failed", { error: err }));
       }
       cycles += 1;
     } catch (err) {
-      console.error("worker cycle failed", err);
+      log.error("worker cycle failed", { error: err });
     } finally {
       g.__qantmWorkerBusy = false;
     }
   }, POLL_MS);
   // Don't keep a dying process alive just for the poller.
   g.__qantmWorker.unref?.();
-  console.log(`[worker] publish queue polling every ${POLL_MS / 1000}s`);
+  log.info("worker started", { event: "worker_started", pollMs: POLL_MS });
 }

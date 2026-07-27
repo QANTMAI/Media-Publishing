@@ -1,0 +1,20 @@
+# Example Litestream config (audit R1 — this was previously doc-only prose).
+# Litestream runs as a SIDECAR next to the app and streams the SQLite WAL to
+# object storage continuously (RPO ~seconds). Copy to litestream.yml, set your
+# replica URL + credentials, then:
+#   litestream replicate -config litestream.yml
+# Restore before a fresh boot (RTO = one command + boot):
+#   litestream restore -o /var/lib/qantm/prod.db s3://REPLACE_ME-bucket/qantm-db
+#
+# ⚠️ The DB holds only CIPHERTEXT for vault secrets — a restore is useless
+# without VAULT_MASTER_KEY. Back the key up SEPARATELY (KMS/Secrets Manager).
+# See docs/DEPLOYMENT.md §3 and the Disaster Recovery runbook.
+dbs:
+  - path: /var/lib/qantm/prod.db
+    replicas:
+      - type: s3
+        url: s3://REPLACE_ME-bucket/qantm-db
+        # Credentials via env (never commit them):
+        #   LITESTREAM_ACCESS_KEY_ID / LITESTREAM_SECRET_ACCESS_KEY
+        # or an attached IAM role. Any Litestream-supported backend works
+        # (S3, GCS, Azure, SFTP) — see https://litestream.io/reference/config/

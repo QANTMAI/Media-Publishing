@@ -311,3 +311,10 @@ test("config: YouTube OAuth is all-or-none (partial = hard error)", () => {
   assert.ok(!full.errors.some((e) => /YouTube/.test(e)), "complete YOUTUBE_* is not an error");
   assert.ok(!full.warnings.some((w) => /YOUTUBE_\* is unset/.test(w)), "configured → no unset warning");
 });
+
+test("config: prod SQLite without DB_BACKUP_CONFIGURED warns (durability nudge)", () => {
+  const unacked = checkConfig(PROD_BASE); // DATABASE_URL is file:, DB_BACKUP_CONFIGURED unset
+  assert.ok(unacked.warnings.some((w) => /DB_BACKUP_CONFIGURED/.test(w)), "unacknowledged backups must warn");
+  const acked = checkConfig({ ...PROD_BASE, DB_BACKUP_CONFIGURED: "1" });
+  assert.ok(!acked.warnings.some((w) => /DB_BACKUP_CONFIGURED/.test(w)), "acknowledged → no durability warning");
+});

@@ -58,23 +58,33 @@ mode plus continuous streaming backups, not from a separate database server.
    read, and is Litestream's prerequisite. WAL creates `prod.db-wal` and
    `prod.db-shm` sidecars next to the file — leave them in place.
 
-4. **Continuous backups with Litestream.** Run it as a sidecar that streams the
-   database to object storage (S3, GCS, etc.). Minimal `litestream.yml`:
-
-   ```yaml
-   dbs:
-     - path: /var/lib/qantm/prod.db
-       replicas:
-         - url: s3://my-bucket/qantm-db
-   ```
+4. **Continuous backups with Litestream (primary).** Run it as a sidecar that
+   streams the WAL to object storage (S3/GCS/Azure/SFTP). A ready-to-edit config
+   ships in the repo: **[`litestream.example.yml`](../litestream.example.yml)** —
+   copy to `litestream.yml`, set the replica URL + credentials, then:
 
    ```bash
    litestream replicate -config litestream.yml
    ```
 
-   Restore before a fresh boot with `litestream restore -o /var/lib/qantm/prod.db s3://my-bucket/qantm-db`.
-   The database holds vault ciphertext, the audit log, and the queue — secrets
-   are encrypted at rest, but protect the backup bucket regardless.
+   Restore before a fresh boot: `litestream restore -o /var/lib/qantm/prod.db s3://my-bucket/qantm-db`.
+
+5. **Local backup fallback (zero-dependency).** Even with Litestream, a
+   scheduled local snapshot is a cheap floor:
+
+   ```bash
+   npm run db:backup   # SQLite VACUUM INTO → BACKUP_DIR (default ./backups), keeps BACKUP_KEEP (14)
+   ```
+
+   It's an online, WAL-aware, transactionally-consistent snapshot (no downtime,
+   no `sqlite3` CLI). Wire it to cron for defense-in-depth. **This is a local
+   floor, not off-box durability** — keep Litestream (or copy the snapshots
+   off-box) for real disaster recovery.
+
+Once backups are wired, set **`DB_BACKUP_CONFIGURED=1`** — the config guard
+warns at every prod boot until you do. The database holds vault **ciphertext**,
+the audit log, and the queue; secrets are encrypted at rest, but protect the
+backup destination regardless.
 
 > Why not Postgres? For one operator, SQLite in WAL mode with Litestream is
 > durable, faster (no network round-trip), and eliminates a moving part. If the
@@ -170,3 +180,19 @@ encrypted in the same vault as OAuth tokens and used server-side only.
 - **Kill switch:** the topbar "Pause all publishing" holds the entire queue instantly (persisted; the worker respects it). Use it during incidents.
 - **Audit log:** every auth, connect, publish, and settings change is recorded (`AuditEvent`); metadata never contains secrets.
 - **Key rotation:** rotating `VAULT_MASTER_KEY` requires re-encrypting stored secrets — the vault carries a `keyVersion` seam for this; plan a maintenance step before rotating.
+
+## 13. Disaster recovery (runbook)
+
+Recovery has **two independent halves — you need both, or you recover nothing usable.**
+
+1. **The database** — restore from Litestream (`litestream restore -o /var/lib/qantm/prod.db <replica-url>`) or copy the newest `db:backup` snapshot into place. With Litestream, RPO is ~seconds and RTO is one command + boot.
+2. **The vault master key** — `VAULT_MASTER_KEY` is an **environment variable, not in the database**. The DB stores only *ciphertext* for every OAuth token and API key. **A DB restore without the original `VAULT_MASTER_KEY` recovers unreadable credentials** — every connected account would have to be reconnected from scratch. Back the key up **separately** in KMS / a secrets manager with its own recovery path.
+
+**Restore procedure:**
+1. Provision the host + persistent volume; install the app (`npm ci && npm run build`).
+2. Restore the DB (Litestream or a `db:backup` snapshot) to the `DATABASE_URL` path. Leave the `-wal`/`-shm` sidecars to be recreated at boot.
+3. Restore `VAULT_MASTER_KEY` (and `SESSION_SECRET`, `STORAGE_SIGNING_KEY`) from your secrets manager into the environment — the **same** values as before, or vault contents won't decrypt.
+4. Restore the `storage/` media volume if used (or accept that media served from it is gone).
+5. `npx prisma migrate deploy` (idempotent), boot, confirm `GET /api/health` → `200`.
+
+**Test the restore before you need it.** An untested backup is a hypothesis. Periodically restore into a scratch environment and confirm a vaulted credential actually decrypts (e.g. an account can publish) — that proves both halves are intact, not just the DB file.

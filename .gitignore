@@ -27,6 +27,9 @@ npm-debug.log*
 # excluded the signed-URL route from the repo — caught by CI).
 /storage/
 
+# Local DB backups (db:backup) — never commit database contents
+/backups/
+
 # Isolated test harness artifacts
 .next-test/
 test.db

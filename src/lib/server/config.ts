@@ -49,6 +49,15 @@ export function checkConfig(env: Env = process.env): ConfigReport {
   // WAL + Litestream setup in docs/DEPLOYMENT.md. We can't verify the path is
   // durable from here, so this stays a doc-level concern, not a boot check.
   if (!env.DATABASE_URL) errors.push("DATABASE_URL is not set");
+  // Durability nudge: we can't verify off-box backups from here, but a SQLite
+  // file in prod with no acknowledged backup path is a disk-loss risk. Warn
+  // (not fatal) until the operator wires Litestream (litestream.example.yml) or
+  // a db:backup cron and sets DB_BACKUP_CONFIGURED=1 to acknowledge it.
+  if (isProd && (env.DATABASE_URL ?? "").startsWith("file:") && env.DB_BACKUP_CONFIGURED !== "1") {
+    warnings.push(
+      "DATABASE_URL is a SQLite file in production but DB_BACKUP_CONFIGURED is not set — configure Litestream (docs/DEPLOYMENT.md §3) or a db:backup cron, then set DB_BACKUP_CONFIGURED=1. Without off-box backups a disk loss is unrecoverable, and a restore is useless without VAULT_MASTER_KEY.",
+    );
+  }
 
   // ── Production-only hardening ──
   if (isProd) {
