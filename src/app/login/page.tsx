@@ -39,7 +39,14 @@ export default function LoginPage() {
     });
     setBusy(false);
     if (res.ok) {
-      setStage("2fa");
+      const data = await res.json().catch(() => ({}));
+      if (data.next === "done") {
+        // No 2FA on this account — the session is already set.
+        notify("Signed in securely");
+        router.replace("/dashboard");
+      } else {
+        setStage("2fa");
+      }
     } else {
       setError((await res.json()).error ?? "Sign-in failed");
     }
@@ -131,8 +138,8 @@ export default function LoginPage() {
                   paddingTop: 12,
                 }}
               >
-                Sign-in is email + password + authenticator code. SSO and passkeys are on the
-                roadmap, not available yet.
+                Sign-in is email + password, with an optional authenticator code when 2FA is
+                enrolled. SSO and passkeys are on the roadmap, not available yet.
               </p>
             </form>
           ) : (

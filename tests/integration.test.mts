@@ -163,6 +163,44 @@ test("a consumed TOTP code cannot be replayed", async () => {
   assert.equal(verify.status, 200);
 });
 
+test("2FA optional: a password-only account signs in without a code and gets a real session", async () => {
+  const bcrypt = (await import("bcryptjs")).default;
+  const email = "noauth-fixture@qantm.ai";
+  const password = "noauth-fixture-2026!";
+  const hash = await bcrypt.hash(password, 12);
+  await db.user.upsert({
+    where: { email },
+    update: { passwordHash: hash, totpEnabled: false, totpSecret: null, totpLastStep: null },
+    create: { email, passwordHash: hash, totpEnabled: false },
+  });
+  try {
+    // Isolated request (no shared jar) so the operator's session is untouched.
+    const login = await fetch(`${BASE}/api/auth/login`, {
+      method: "POST",
+      redirect: "manual",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    assert.equal(login.status, 200);
+    const body = await login.json();
+    assert.equal(body.next, "done", "password-only login skips the 2FA step");
+
+    const setCookies = login.headers.getSetCookie?.() ?? [];
+    const session = setCookies.find((c) => c.startsWith("qantm_session=") && !/qantm_session=;/.test(c));
+    assert.ok(session, "a real session cookie is issued immediately");
+    assert.ok(
+      !setCookies.some((c) => c.startsWith("qantm_preauth=") && !/qantm_preauth=;/.test(c)),
+      "no half-step preauth cookie when there is no 2FA",
+    );
+
+    // The issued session actually authenticates.
+    const me = await fetch(`${BASE}/api/auth/me`, { headers: { cookie: session!.split(";")[0] } });
+    assert.equal(me.status, 200, "the issued session authenticates");
+  } finally {
+    await db.user.deleteMany({ where: { email } });
+  }
+});
+
 test("unauthenticated requests are rejected", async () => {
   const anon = await fetch(`${BASE}/api/posts`);
   assert.equal(anon.status, 401);

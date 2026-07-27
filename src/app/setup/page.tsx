@@ -1,8 +1,9 @@
 "use client";
 
-/* First-run operator setup: create the single account, then enroll mandatory
- * TOTP 2FA by scanning a QR (or entering the key manually) and confirming a
- * live code. Only reachable while no user exists. */
+/* First-run operator setup: create the single account. Two-factor is optional
+ * — leave it off for password-only sign-in, or opt in to enroll TOTP by
+ * scanning a QR (or entering the key manually) and confirming a live code.
+ * Only reachable while no user exists. */
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -16,6 +17,7 @@ export default function SetupPage() {
   const [qr, setQr] = useState("");
   const [manualKey, setManualKey] = useState("");
   const [code, setCode] = useState("");
+  const [enable2fa, setEnable2fa] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -34,16 +36,21 @@ export default function SetupPage() {
     const res = await fetch("/api/auth/setup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, enable2fa }),
     });
     const data = await res.json();
     setBusy(false);
-    if (res.ok) {
+    if (!res.ok) {
+      setError(data.error ?? "Setup failed");
+      return;
+    }
+    if (data.needs2fa) {
       setQr(data.qrDataUrl);
       setManualKey(data.manualKey);
       setStage("totp");
     } else {
-      setError(data.error ?? "Setup failed");
+      // Password-only: account finalized and session already issued.
+      router.replace("/dashboard");
     }
   };
 
@@ -84,11 +91,12 @@ export default function SetupPage() {
                 createAccount();
               }}
             >
-              <p className="kick">First-run setup · 1 of 2</p>
+              <p className="kick">First-run setup</p>
               <h2 style={{ fontSize: 28, margin: "0 0 8px" }}>Create your operator account</h2>
               <p style={{ fontSize: 14, color: "var(--color-neutral-700)", marginBottom: 20 }}>
                 This portal has a single operator. Two-factor authentication is
-                mandatory and is enrolled in the next step.
+                optional — enable it below to enroll an authenticator in the next
+                step.
               </p>
               <div className="field" style={{ marginBottom: 14 }}>
                 <label htmlFor="email">Email</label>
@@ -115,13 +123,35 @@ export default function SetupPage() {
                   required
                 />
               </div>
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 10,
+                  fontSize: 13,
+                  color: "var(--color-neutral-700)",
+                  marginBottom: 18,
+                  cursor: "pointer",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={enable2fa}
+                  onChange={(e) => setEnable2fa(e.target.checked)}
+                  style={{ marginTop: 2 }}
+                />
+                <span>
+                  Enable two-factor authentication (recommended). You&apos;ll scan a QR with an
+                  authenticator app in the next step. Leave off for password-only sign-in.
+                </span>
+              </label>
               {error && (
                 <p style={{ color: "var(--color-accent-2-700)", fontSize: 13, fontWeight: 600, margin: "0 0 12px" }}>
                   {error}
                 </p>
               )}
               <button className="btn btn-primary btn-block" type="submit" disabled={busy}>
-                {busy ? "Creating…" : "Continue to 2FA"}
+                {busy ? "Creating…" : enable2fa ? "Continue to 2FA" : "Create account"}
               </button>
             </form>
           )}

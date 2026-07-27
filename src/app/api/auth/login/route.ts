@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/server/db";
-import { setPreauthCookie } from "@/lib/server/session";
+import { setPreauthCookie, setSessionCookie } from "@/lib/server/session";
 import { audit, requestIp } from "@/lib/server/audit";
 import { rateLimited, rateLimitReset } from "@/lib/server/rate-limit";
 
-/** POST /api/auth/login — password check. On success issues a 5-minute
- * preauth cookie; the session only exists after TOTP verification.
+/** POST /api/auth/login — password check. Two-factor is optional: if the
+ * operator has TOTP enrolled, success issues a 5-minute preauth cookie and the
+ * session only exists after TOTP verification (next:"2fa"); otherwise the
+ * password is sufficient and the session is issued immediately (next:"done").
  * Rate limited: 5 attempts / 15 min per IP+email. */
 export async function POST(req: Request) {
   const { email, password } = (await req.json().catch(() => ({}))) as {
@@ -40,12 +42,18 @@ export async function POST(req: Request) {
     // Uniform error whether the email or the password was wrong.
     return NextResponse.json({ error: "Email or password is incorrect" }, { status: 401 });
   }
-  if (!user.totpEnabled) {
-    return NextResponse.json({ error: "2FA enrollment incomplete — finish setup first" }, { status: 409 });
+  rateLimitReset(rlKey);
+
+  // Two-factor is optional. With TOTP enrolled, the password only earns a
+  // short-lived preauth cookie — the session is minted after /verify. Without
+  // it, the password is the whole factor and the session is issued now.
+  if (user.totpEnabled) {
+    await setPreauthCookie(user.id);
+    await audit("auth.login", { userId: user.id, ip, metadata: { twofa: true } });
+    return NextResponse.json({ ok: true, next: "2fa" });
   }
 
-  rateLimitReset(rlKey);
-  await setPreauthCookie(user.id);
-  await audit("auth.login", { userId: user.id, ip });
-  return NextResponse.json({ ok: true, next: "2fa" });
+  await setSessionCookie(user.id);
+  await audit("auth.login", { userId: user.id, ip, metadata: { twofa: false } });
+  return NextResponse.json({ ok: true, next: "done" });
 }

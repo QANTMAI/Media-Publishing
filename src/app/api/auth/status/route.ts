@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/server/db";
 
 /** GET /api/auth/status — does the portal have its operator account yet?
- * Setup only counts once 2FA enrollment is confirmed; until then the flow
- * stays resumable. */
+ * The account exists once it's created; two-factor is an optional second
+ * factor layered on top, so an operator without 2FA still counts as set up. */
 export async function GET() {
-  const users = await db.user.count({ where: { totpEnabled: true } });
+  const users = await db.user.count();
   return NextResponse.json({ needsSetup: users === 0 });
 }
