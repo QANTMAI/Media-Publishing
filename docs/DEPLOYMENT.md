@@ -112,6 +112,46 @@ this is all you need. For **multiple app instances**, run the worker as its own
 single process instead (the queue's atomic claims already make double-publish
 impossible) so you don't run N pollers — see the note in `instrumentation.ts`.
 
+## 5b. Container image (GHCR)
+
+A production `Dockerfile` and the **Publish container image** GitHub Actions
+workflow build and push an image to GHCR on every push to `main` (and on `v*`
+tags). This publishes an **image only** — it deploys nothing and handles no
+secrets. The image is at `ghcr.io/<owner>/<repo>` (e.g.
+`ghcr.io/qantmai/media-publishing`), tagged `latest`, `sha-<commit>`, and any
+semver tag.
+
+The image is a two-stage build on Debian slim (glibc, so `sharp` /
+`ffmpeg-static` / `ffprobe-static` binaries resolve). It runs `next start`,
+which also boots the in-process worker. At container start the entrypoint
+**fails fast if a real secret is missing**, applies `prisma migrate deploy`,
+then serves on `$PORT` (default 3000).
+
+Run it with real secrets and a **persistent volume** for SQLite (mount at
+`/app/data` — `DATABASE_URL` defaults to `file:/app/data/prod.db`):
+
+```bash
+docker run -d --name qantm-portal \
+  -p 3000:3000 \
+  -v qantm-data:/app/data \
+  -e SESSION_SECRET="$(openssl rand -base64 32)" \
+  -e VAULT_MASTER_KEY="<32-byte base64 — KEEP THIS; without it the vault is unrecoverable>" \
+  -e STORAGE_SIGNING_KEY="$(openssl rand -base64 32)" \
+  ghcr.io/qantmai/media-publishing:latest
+```
+
+Notes:
+
+- **The volume is not a backup.** A container image + a single volume still
+  needs off-box durability — configure Litestream (§3) and set
+  `DB_BACKUP_CONFIGURED=1`. A restore is useless without `VAULT_MASTER_KEY`.
+- **Never** set `AUTH_DEV_BYPASS` in a production container (it is code-gated
+  to non-production, but the variable should simply be absent).
+- The image has no host platform assumptions beyond `linux/amd64` (what the
+  workflow builds). Add `platforms:` to the build step for multi-arch.
+- GHCR packages are **private by default**; make the package public or grant
+  pull access in the repo's *Packages* settings if another host needs to pull.
+
 ## 6. Reverse proxy & TLS
 
 - Terminate TLS at the proxy and forward to the app.

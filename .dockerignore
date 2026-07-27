@@ -1,0 +1,20 @@
+# Build context hygiene — keep secrets, local state, and heavy dirs out of the image.
+.git
+.github
+node_modules
+.next
+.next-test
+# Local databases and any SQLite sidecar files (WAL/SHM) — never ship data.
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+# Secrets and env — provided at runtime by the host, never baked in.
+.env
+.env.*
+# Local media/storage and scratch.
+storage
+coverage
+*.log
+# Docs/build artifacts not needed to run.
+.DS_Store
