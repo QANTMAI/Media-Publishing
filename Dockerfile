@@ -30,15 +30,19 @@ RUN npm ci
 COPY . .
 RUN npx prisma generate
 
-# Throwaway build-time env — NEVER real secrets. This stage is discarded, so
-# these values never reach the final image. They exist only so any config read
-# during `next build`'s static generation has something well-formed to parse;
-# the app reads real secrets lazily at runtime, not at build.
-ENV SESSION_SECRET="build-only-placeholder-not-a-real-secret-000" \
-    VAULT_MASTER_KEY="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" \
-    STORAGE_SIGNING_KEY="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" \
-    DATABASE_URL="file:./build.db"
-RUN npx next build
+# Build with a throwaway .env (NEVER real secrets), written inside this stage
+# and discarded with it — it is not copied into the runner. The app reads real
+# secrets lazily at runtime, not at build, so these placeholders only satisfy
+# any incidental config read during `next build`. Using a .env file (as CI
+# does) rather than ENV instructions keeps secret-shaped values out of image
+# metadata (Docker's SecretsUsedInArgOrEnv rule).
+RUN printf '%s\n' \
+      'SESSION_SECRET=build-only-placeholder-not-a-real-secret-000' \
+      'VAULT_MASTER_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' \
+      'STORAGE_SIGNING_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' \
+      'DATABASE_URL=file:./build.db' > .env \
+    && npx next build \
+    && rm -f .env
 
 # ── Stage 2: runtime ───────────────────────────────────────────────────────
 FROM node:20-bookworm-slim AS runner
