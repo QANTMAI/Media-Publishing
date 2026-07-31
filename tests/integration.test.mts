@@ -773,83 +773,74 @@ test("metrics: mock publishes get NO snapshots; /api/metrics serves only real ro
   assert.equal(anon.status, 401, "metrics endpoint requires auth");
 });
 
-test("autopilot (auto mode) plans real scheduled posts and cleans up on off", async () => {
-  // Ensure a clean OFF baseline — autopilot ON is idempotent, so a lingering
-  // ON from prior use would return planned:0.
+test("autopilot is AI-only: refuses to turn on without a key, never fakes filler", async () => {
   await api("/api/autopilot", { method: "POST", body: JSON.stringify({ on: false }) });
-  // Auto-schedule mode is what queues jobs directly (review mode drafts instead).
-  await api("/api/settings", { method: "PUT", body: JSON.stringify({ autopilotMode: "auto" }) });
-  const on = await api("/api/autopilot", { method: "POST", body: JSON.stringify({ on: true }) });
-  assert.equal(on.status, 200);
-  const { planned, ai } = await on.json();
-  // New behavior: a fixed batch is planned round-robin across whatever accounts
-  // are connected (no AI key in the test env → clearly-labeled fallback drafts).
-  assert.equal(ai, false, "no AI key → fallback path");
-  assert.equal(planned, 5, "plans a batch of 5 across the connected account(s)");
-
-  const apPosts = await db.post.count({ where: { source: "autopilot" } });
-  assert.ok(apPosts >= planned, "autopilot posts exist");
-  const apJobs = await db.publishJob.count({
-    where: { completedAt: null, target: { post: { source: "autopilot" } } },
-  });
-  assert.ok(apJobs >= planned, "each planned post has a queued job");
-
-  const off = await api("/api/autopilot", { method: "POST", body: JSON.stringify({ on: false }) });
-  assert.equal(off.status, 200);
-  const remaining = await db.post.count({
-    where: { source: "autopilot", targets: { none: { state: { in: ["published", "publishing"] } } } },
-  });
-  assert.equal(remaining, 0, "unpublished autopilot posts removed");
-  await api("/api/settings", { method: "PUT", body: JSON.stringify({ autopilotMode: "review" }) });
+  const res = await api("/api/autopilot", { method: "POST", body: JSON.stringify({ on: true }) });
+  assert.equal(res.status, 200);
+  const d = await res.json();
+  assert.equal(d.autopilot, false, "stays OFF — no AI key in the test env");
+  assert.equal(d.reason, "no_ai_key");
+  assert.equal(d.planned, 0);
+  assert.equal(await db.post.count({ where: { source: "autopilot" } }), 0, "no filler drafts created");
 });
 
-test("autopilot (review mode) drafts for the inbox; approve queues, discard removes", async () => {
-  await api("/api/autopilot", { method: "POST", body: JSON.stringify({ on: false }) });
-  await api("/api/settings", { method: "PUT", body: JSON.stringify({ autopilotMode: "review" }) });
-  const on = await api("/api/autopilot", { method: "POST", body: JSON.stringify({ on: true }) });
-  assert.equal(on.status, 200);
-  const body = await on.json();
-  assert.equal(body.mode, "review");
-  assert.ok(body.planned >= 1, "at least one review draft planned");
-
-  // Review-mode plans are DRAFTS with no queue jobs — nothing publishes until approved.
-  const drafts = await db.post.findMany({
-    where: { source: "autopilot", status: "draft" },
-    include: { targets: { include: { jobs: true } } },
-  });
-  assert.ok(drafts.length >= 1, "autopilot created draft posts");
-  for (const d of drafts) {
-    assert.equal(d.targets[0].state, "draft");
-    assert.equal(d.targets[0].jobs.length, 0, "review drafts have no publish job");
-  }
-
-  // Approve one → it schedules and gets a real job.
-  const toApprove = drafts[0];
-  const appr = await api(`/api/posts/${toApprove.id}/approve`, { method: "POST" });
-  assert.equal(appr.status, 200);
-  const approved = await db.post.findUnique({
-    where: { id: toApprove.id },
-    include: { targets: { include: { jobs: true } } },
-  });
-  assert.equal(approved!.status, "scheduled");
-  assert.equal(approved!.targets[0].state, "scheduled");
-  assert.equal(approved!.targets[0].jobs.length, 1, "approved draft is queued");
-  assert.ok(approved!.targets[0].jobs[0].runAt.getTime() > Date.now(), "job runs in the future");
-
-  // Discard another → gone; and a scheduled post can't be discarded.
-  if (drafts[1]) {
+test("autopilot review-mode planning: drafts for review, no job; approve queues, discard removes", async () => {
+  const { planAutopilotDrafts } = await import("../src/lib/server/autopilot-plan");
+  const acct = await db.socialAccount.findFirst({ where: { status: "connected" } });
+  assert.ok(acct);
+  const created = await planAutopilotDrafts(
+    userId,
+    [{ caption: "AP review draft 1", category: "Promo" }, { caption: "AP review draft 2", category: "Promo" }],
+    [{ id: acct!.id }],
+    true,
+  );
+  assert.equal(created, 2);
+  try {
+    const drafts = await db.post.findMany({
+      where: { source: "autopilot", status: "draft" },
+      include: { targets: { include: { jobs: true } } },
+    });
+    assert.ok(drafts.length >= 2);
+    for (const d of drafts) {
+      assert.equal(d.targets[0].state, "draft");
+      assert.equal(d.targets[0].jobs.length, 0, "review drafts have no publish job");
+    }
+    const appr = await api(`/api/posts/${drafts[0].id}/approve`, { method: "POST" });
+    assert.equal(appr.status, 200);
+    const approved = await db.post.findUnique({ where: { id: drafts[0].id }, include: { targets: { include: { jobs: true } } } });
+    assert.equal(approved!.targets[0].state, "scheduled");
+    assert.equal(approved!.targets[0].jobs.length, 1, "approved draft is queued");
     const del = await api(`/api/posts/${drafts[1].id}`, { method: "DELETE" });
-    assert.equal(del.status, 200);
-    assert.equal(await db.post.count({ where: { id: drafts[1].id } }), 0, "discarded draft removed");
+    assert.equal(del.status, 200, "discard removes a draft");
+    const cantDiscard = await api(`/api/posts/${drafts[0].id}`, { method: "DELETE" });
+    assert.equal(cantDiscard.status, 409, "a scheduled post can't be discarded");
+  } finally {
+    await db.post.deleteMany({ where: { source: "autopilot" } });
   }
-  const cantDiscard = await api(`/api/posts/${toApprove.id}`, { method: "DELETE" });
-  assert.equal(cantDiscard.status, 409, "scheduled posts can't be discarded");
+});
 
-  // Clean up: autopilot off removes remaining unpublished autopilot posts, but
-  // the one we approved (now scheduled, with a job) also gets cleaned since no
-  // target is published/publishing/claimed.
-  await api("/api/autopilot", { method: "POST", body: JSON.stringify({ on: false }) });
-  await db.post.deleteMany({ where: { source: "autopilot" } });
+test("autopilot auto-mode planning queues real jobs; off removes unpublished", async () => {
+  const { planAutopilotDrafts } = await import("../src/lib/server/autopilot-plan");
+  const acct = await db.socialAccount.findFirst({ where: { status: "connected" } });
+  assert.ok(acct);
+  const created = await planAutopilotDrafts(userId, [{ caption: "AP auto 1", category: "Promo" }], [{ id: acct!.id }], false);
+  assert.equal(created, 1);
+  try {
+    const post = await db.post.findFirst({ where: { source: "autopilot" }, include: { targets: { include: { jobs: true } } } });
+    assert.equal(post!.targets[0].state, "scheduled");
+    assert.equal(post!.targets[0].jobs.length, 1, "auto-mode queues a job");
+    assert.ok(post!.targets[0].jobs[0].runAt.getTime() > Date.now(), "job runs in the future");
+    // Autopilot OFF sweeps unpublished autopilot posts.
+    await db.setting.upsert({ where: { key: "autopilot" }, update: { value: "on" }, create: { key: "autopilot", value: "on" } });
+    const off = await api("/api/autopilot", { method: "POST", body: JSON.stringify({ on: false }) });
+    assert.equal(off.status, 200);
+    const remaining = await db.post.count({
+      where: { source: "autopilot", targets: { none: { state: { in: ["published", "publishing"] } } } },
+    });
+    assert.equal(remaining, 0, "unpublished autopilot posts removed on off");
+  } finally {
+    await db.post.deleteMany({ where: { source: "autopilot" } });
+  }
 });
 
 test("categories: defaults seed, create, rename relabels posts, recolor, delete guards last", async () => {
@@ -1868,22 +1859,4 @@ test("feed caption: auth-gated; honest no-op without an Anthropic key", async ()
 
 test("feed image suggestion is auth-gated", async () => {
   assert.equal((await fetch(`${BASE}/api/feeds/image`, { method: "POST", body: "{}" })).status, 401);
-});
-
-test("autopilot plans review drafts onto CONNECTED accounts (fallback path, no AI key)", async () => {
-  await api("/api/autopilot", { method: "POST", body: JSON.stringify({ on: false }) }); // reset idempotency
-  const res = await api("/api/autopilot", { method: "POST", body: JSON.stringify({ on: true }) });
-  assert.equal(res.status, 200);
-  const d = await res.json();
-  try {
-    assert.ok(d.planned > 0, "plans at least one draft onto a connected account");
-    assert.equal(d.ai, false, "no AI key in the test env → clearly-labeled fallback drafts");
-    const drafts = await db.post.findMany({ where: { source: "autopilot", status: "draft" }, include: { targets: true } });
-    assert.ok(drafts.length >= d.planned, "review drafts persisted");
-    for (const p of drafts) {
-      assert.ok(p.targets.length === 1 && p.targets[0].state === "draft", "each targets one connected account as a draft");
-    }
-  } finally {
-    await api("/api/autopilot", { method: "POST", body: JSON.stringify({ on: false }) }); // cleanup
-  }
 });

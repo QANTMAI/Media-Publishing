@@ -5,12 +5,14 @@
  * the caller falls back to plain (clearly-labeled) placeholder drafts — the
  * operator reviews/edits every draft before anything publishes. */
 
+import { db } from "./db";
 import { getCredentialPlaintext } from "./credentials";
 import { callClaudeStructured } from "./anthropic";
 import { getBrandVoice, buildVoiceCorpus } from "./brand-voice";
 import { buildVoiceBlock } from "./repurpose";
 
 const MODEL = "claude-sonnet-5";
+const TIMES: Array<[number, number]> = [[9, 0], [12, 0], [15, 30], [18, 0], [19, 30]];
 
 export interface PlannedDraft {
   caption: string;
@@ -98,6 +100,44 @@ export async function generateAutopilotDrafts(
     const drafts = normalizeDrafts(raw, categories, count);
     return drafts.length ? drafts : null;
   } catch {
-    return null; // fail safe — caller falls back to placeholder drafts
+    return null; // AI unavailable — the route refuses (never fakes filler)
   }
+}
+
+/** Persist the planned drafts: one Post/PostTarget per draft, round-robin
+ * across the connected accounts, spread over upcoming days. Review mode leaves
+ * them as drafts (no job); auto mode queues a PublishJob. Separated from AI
+ * generation so the scheduling/queue logic is testable without a model call.
+ * Returns how many were created. */
+export async function planAutopilotDrafts(
+  userId: string,
+  drafts: PlannedDraft[],
+  connected: Array<{ id: string }>,
+  isReview: boolean,
+): Promise<number> {
+  if (connected.length === 0) return 0;
+  let created = 0;
+  for (let i = 0; i < drafts.length; i++) {
+    const account = connected[i % connected.length];
+    const when = new Date();
+    when.setDate(when.getDate() + i + 1);
+    const [h, m] = TIMES[i % TIMES.length];
+    when.setHours(h, m, 0, 0);
+    const post = await db.post.create({
+      data: {
+        userId,
+        baseCaption: drafts[i].caption,
+        category: drafts[i].category,
+        status: isReview ? "draft" : "scheduled",
+        source: "autopilot",
+        targets: { create: [{ socialAccountId: account.id, scheduledAt: when, state: isReview ? "draft" : "scheduled" }] },
+      },
+      include: { targets: true },
+    });
+    if (!isReview) {
+      await db.publishJob.create({ data: { postTargetId: post.targets[0].id, runAt: when } });
+    }
+    created += 1;
+  }
+  return created;
 }

@@ -318,6 +318,20 @@ export const usePortal = create<PortalState>()(
           return false;
         }
         const d = await res.json();
+        // Refused to turn on (autopilot is AI-only) — explain, stay off.
+        if (next && !d.autopilot) {
+          set({ autopilot: false });
+          get().notify(
+            d.reason === "no_ai_key"
+              ? "Autopilot needs your Anthropic key — add it in Settings → Integrations & keys"
+              : d.reason === "ai_failed"
+                ? "Autopilot couldn't reach the AI — check your Anthropic credit balance"
+                : d.reason === "no_connected_accounts"
+                  ? "Connect an account before turning on Autopilot"
+                  : "Autopilot couldn't start",
+          );
+          return false;
+        }
         set({ autopilot: d.autopilot });
         await get().refreshPosts();
         get().notify(
