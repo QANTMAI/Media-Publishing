@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/server/db";
 import { readSession } from "@/lib/server/session";
+import { metaConfigured } from "@/lib/server/meta";
+import { linkedinConfigured } from "@/lib/server/linkedin";
+import { youtubeConfigured } from "@/lib/server/youtube";
 
 /** GET /api/accounts — the operator's connected-account rows. Tokens never
  * appear here; only status/metadata. */
@@ -29,5 +32,14 @@ export async function GET() {
   // Product ordering (wave order), not alphabetical.
   const ORDER = ["instagram", "facebook", "x", "linkedin", "youtube", "tiktok", "threads", "bluesky", "pinterest", "gbp"];
   accounts.sort((a, b) => ORDER.indexOf(a.platform) - ORDER.indexOf(b.platform));
-  return NextResponse.json({ accounts });
+  // Which OAuth platforms have real credentials configured — the UI uses this
+  // to show "Needs setup" instead of letting a Connect create a mock. Bluesky
+  // needs no app (app password), so it's always connectable.
+  const configured = {
+    meta: metaConfigured(),
+    linkedin: linkedinConfigured(),
+    youtube: youtubeConfigured(),
+    bluesky: true,
+  };
+  return NextResponse.json({ accounts, configured });
 }

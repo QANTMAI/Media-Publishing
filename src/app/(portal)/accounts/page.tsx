@@ -104,10 +104,15 @@ export default function AccountsPage() {
   const [bsPassword, setBsPassword] = useState("");
   const [bsBusy, setBsBusy] = useState(false);
   const [bsError, setBsError] = useState("");
+  const [configured, setConfigured] = useState<Record<string, boolean>>({});
 
   const refresh = async () => {
     const res = await fetch("/api/accounts");
-    if (res.ok) setAccounts((await res.json()).accounts);
+    if (res.ok) {
+      const d = await res.json();
+      setAccounts(d.accounts);
+      setConfigured(d.configured ?? {});
+    }
     setLoaded(true);
   };
 
@@ -119,7 +124,11 @@ export default function AccountsPage() {
     fetch("/api/accounts")
       .then(async (res) => {
         if (cancelled) return;
-        if (res.ok) setAccounts((await res.json()).accounts);
+        if (res.ok) {
+          const d = await res.json();
+          setAccounts(d.accounts);
+          setConfigured(d.configured ?? {});
+        }
       })
       .finally(() => {
         if (!cancelled) setLoaded(true);
@@ -135,7 +144,13 @@ export default function AccountsPage() {
     const connected = params.get("connected");
     const connectError = params.get("connect_error");
     if (connected) notify(`Connected ${connected} account${connected === "1" ? "" : "s"} via Meta`);
-    if (connectError) notify(connectError);
+    if (connectError) {
+      notify(
+        connectError === "not_configured"
+          ? "That platform isn't set up yet — add its OAuth credentials (docs/DEPLOYMENT.md) to connect for real."
+          : connectError,
+      );
+    }
     if (connected || connectError) {
       window.history.replaceState(null, "", "/accounts");
     }
@@ -311,18 +326,35 @@ export default function AccountsPage() {
         Connect a platform
       </p>
       <div className="stack stack-strong">
-        {CONNECTABLE.map((p) => (
-          <div key={p.mark} style={{ padding: "14px 18px", display: "flex", alignItems: "center", gap: 14 }}>
-            <div className="mark">{p.mark}</div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 600, fontSize: 14 }}>{p.name}</div>
-              <div style={{ fontSize: 12, color: "var(--color-neutral-600)" }}>{p.handle}</div>
+        {CONNECTABLE.map((p) => {
+          const cfg = p.start.includes("meta") ? "meta" : p.start.includes("linkedin") ? "linkedin" : "youtube";
+          const isConfigured = configured[cfg] ?? false;
+          return (
+            <div key={p.mark} style={{ padding: "14px 18px", display: "flex", alignItems: "center", gap: 14 }}>
+              <div className="mark">{p.mark}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>{p.name}</div>
+                <div style={{ fontSize: 12, color: "var(--color-neutral-600)" }}>
+                  {p.handle}
+                  {!isConfigured && " · needs OAuth setup (docs/DEPLOYMENT.md)"}
+                </div>
+              </div>
+              {isConfigured ? (
+                <button className="btn btn-primary" onClick={() => setOauthTarget(p)}>
+                  Connect
+                </button>
+              ) : (
+                <button
+                  className="btn btn-secondary"
+                  disabled
+                  title="Add this platform's OAuth credentials to connect for real (no mock connections)."
+                >
+                  Needs setup
+                </button>
+              )}
             </div>
-            <button className="btn btn-primary" onClick={() => setOauthTarget(p)}>
-              Connect
-            </button>
-          </div>
-        ))}
+          );
+        })}
         {/* Bluesky — app password, not OAuth. No developer app, no app review. */}
         <div style={{ padding: "14px 18px", display: "flex", alignItems: "center", gap: 14 }}>
           <div className="mark">BS</div>

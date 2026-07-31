@@ -20,12 +20,11 @@ export async function GET(req: Request) {
     maxAge: 600,
   });
 
-  // Same policy as Meta: mock when OAUTH_MOCK=1 OR the platform app isn't
-  // configured yet — the grant is simulated and the account row is honestly
-  // labeled "mock connection". Each platform goes real independently, as soon
-  // as its own credentials exist.
-  if (process.env.OAUTH_MOCK === "1" || !linkedinConfigured()) {
+  // Real OAuth when configured; mock ONLY under the explicit OAUTH_MOCK=1 dev
+  // flag. In live mode an unconfigured platform refuses honestly (no fake row).
+  if (linkedinConfigured()) return NextResponse.redirect(linkedinAuthUrl(state));
+  if (process.env.OAUTH_MOCK === "1") {
     return NextResponse.redirect(new URL(`/api/oauth/linkedin/callback?mock=1&state=${state}`, req.url));
   }
-  return NextResponse.redirect(linkedinAuthUrl(state));
+  return NextResponse.redirect(new URL("/accounts?connect_error=not_configured", req.url));
 }

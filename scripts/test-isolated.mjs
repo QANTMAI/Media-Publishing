@@ -25,6 +25,9 @@ const env = {
   PORT,
   // A dedicated test server must never run the dev 2FA bypass or mock-nothing.
   NODE_ENV: "development",
+  // Deterministic mock mode for the suite (matches CI) — otherwise the local
+  // .env's OAUTH_MOCK leaks in and OAuth-mock tests diverge local vs CI.
+  OAUTH_MOCK: "1",
 };
 
 let server = null;

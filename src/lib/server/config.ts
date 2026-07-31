@@ -78,7 +78,7 @@ export function checkConfig(env: Env = process.env): ConfigReport {
   if (metaSet.length > 0 && metaSet.length < metaKeys.length) {
     require_.push(`Meta OAuth is partially configured (${metaSet.join(", ")}) — set all of ${metaKeys.join(", ")}, or none`);
   } else if (!mock && metaSet.length === 0) {
-    warnings.push("OAUTH_MOCK=0 but META_* is unset — Meta connects stay in labeled mock mode");
+    warnings.push("OAUTH_MOCK=0 but META_* is unset — Meta can't be connected (no mock in live mode) — set META_* to enable it");
   }
   if (env.META_REDIRECT_URI && isProd && !env.META_REDIRECT_URI.startsWith("https://")) {
     warnings.push("META_REDIRECT_URI should be https:// in production");
@@ -92,7 +92,7 @@ export function checkConfig(env: Env = process.env): ConfigReport {
       `LinkedIn OAuth is partially configured (${liSet.join(", ")}) — set all of ${liKeys.join(", ")}, or none`,
     );
   } else if (!mock && liSet.length === 0) {
-    warnings.push("OAUTH_MOCK=0 but LINKEDIN_* is unset — LinkedIn connects stay in labeled mock mode");
+    warnings.push("OAUTH_MOCK=0 but LINKEDIN_* is unset — LinkedIn can't be connected (no mock in live mode) — set LINKEDIN_* to enable it");
   }
 
   // ── YouTube (Google) OAuth: same all-or-none + mock-fallback policy ──
@@ -101,7 +101,7 @@ export function checkConfig(env: Env = process.env): ConfigReport {
   if (ytSet.length > 0 && ytSet.length < ytKeys.length) {
     require_.push(`YouTube OAuth is partially configured (${ytSet.join(", ")}) — set all of ${ytKeys.join(", ")}, or none`);
   } else if (!mock && ytSet.length === 0) {
-    warnings.push("OAUTH_MOCK=0 but YOUTUBE_* is unset — YouTube connects stay in labeled mock mode");
+    warnings.push("OAUTH_MOCK=0 but YOUTUBE_* is unset — YouTube can't be connected (no mock in live mode) — set YOUTUBE_* to enable it");
   }
 
   // ── Email (optional): both halves or neither ──
