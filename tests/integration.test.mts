@@ -1874,3 +1874,7 @@ test("feed caption: auth-gated; honest no-op without an Anthropic key", async ()
   assert.equal(d.ok, false);
   assert.equal(d.reason, "no_anthropic_key");
 });
+
+test("feed image suggestion is auth-gated", async () => {
+  assert.equal((await fetch(`${BASE}/api/feeds/image`, { method: "POST", body: "{}" })).status, 401);
+});

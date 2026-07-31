@@ -206,31 +206,44 @@ export function parseFeed(xml: string): ParsedFeed {
 /** Fetch + parse a feed URL, bounded in time and size. Redirects are followed
  * MANUALLY so every hop is re-validated (a public URL can't redirect us onto an
  * internal address — the classic SSRF-via-redirect). */
-export async function fetchFeed(url: string): Promise<ParsedFeed> {
+/** SSRF-safe fetch: validates protocol + DNS-resolved IPs on the initial URL
+ * AND every redirect hop (redirects driven manually). The single audited path
+ * for fetching any operator-uncontrolled URL (feeds, article pages, images). */
+export async function safeFetch(
+  url: string,
+  opts: { headers?: Record<string, string>; timeoutMs?: number } = {},
+): Promise<Response> {
   let current = url;
-  let res: Response | null = null;
   for (let hop = 0; hop <= REDIRECT_HOPS; hop++) {
     const u = await assertSafeUrl(current); // protocol + DNS-resolved IP validation, each hop
     let r: Response;
     try {
       r = await fetch(u, {
         redirect: "manual", // we re-validate each hop ourselves
-        headers: { "User-Agent": "QANTM-Media-Portal/1.0 (+feed reader)", Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml" },
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        headers: opts.headers ?? {},
+        signal: AbortSignal.timeout(opts.timeoutMs ?? FETCH_TIMEOUT_MS),
       });
     } catch (err) {
-      throw new FeedError(err instanceof Error && err.name === "TimeoutError" ? "Feed timed out" : "Could not reach that URL");
+      throw new FeedError(err instanceof Error && err.name === "TimeoutError" ? "Request timed out" : "Could not reach that URL");
     }
     if (r.status >= 300 && r.status < 400) {
       const loc = r.headers.get("location");
-      if (!loc) throw new FeedError("Feed redirect had no destination");
+      if (!loc) throw new FeedError("Redirect had no destination");
       current = new URL(loc, u).toString(); // resolve relative; re-validated next iteration
       continue;
     }
-    res = r;
-    break;
+    return r;
   }
-  if (!res) throw new FeedError("Feed redirected too many times");
+  throw new FeedError("Redirected too many times");
+}
+
+export async function fetchFeed(url: string): Promise<ParsedFeed> {
+  const res = await safeFetch(url, {
+    headers: {
+      "User-Agent": "QANTM-Media-Portal/1.0 (+feed reader)",
+      Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml",
+    },
+  });
   if (!res.ok) throw new FeedError(`Feed responded ${res.status}`);
   const buf = await res.arrayBuffer();
   if (buf.byteLength > MAX_BYTES) throw new FeedError("Feed is too large");

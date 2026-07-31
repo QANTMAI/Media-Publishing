@@ -37,6 +37,8 @@ export default function ComposePage() {
   const [newCat, setNewCat] = useState<string | null>(null); // inline ＋New name, null = closed
   const [feedBusy, setFeedBusy] = useState(false);
   const [aiItemId, setAiItemId] = useState<string | null>(null); // feed item being AI-drafted
+  const [imgItemId, setImgItemId] = useState<string | null>(null); // feed item having its image fetched
+  const [suggestedImage, setSuggestedImage] = useState<{ dataUrl: string; publisher: string } | null>(null);
 
   // Pull the operator's trending items for the assist rail.
   useEffect(() => {
@@ -193,6 +195,52 @@ export default function ComposePage() {
     }
   };
 
+  // Suggest (never auto-attach) the story's image. Fetches the og:image as a
+  // preview; the operator decides whether to attach it (they own the rights).
+  const suggestImage = async (it: { id: string }) => {
+    setImgItemId(it.id);
+    let res: Response;
+    try {
+      res = await fetch("/api/feeds/image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ feedItemId: it.id }),
+      });
+    } catch {
+      setImgItemId(null);
+      s.notify("Couldn't reach the server");
+      return;
+    }
+    setImgItemId(null);
+    const d = await res.json().catch(() => ({}));
+    if (d.ok) {
+      setSuggestedImage({ dataUrl: d.dataUrl, publisher: d.publisher || "the source" });
+      s.notify("Found a story image — review the rights before attaching");
+    } else if (d.reason === "no_link") {
+      s.notify("No clean article link to pull an image from");
+    } else if (d.reason === "no_image") {
+      s.notify("No image found on that story");
+    } else if (d.reason === "rate_limited") {
+      s.notify("Too many image lookups — try again shortly");
+    } else {
+      s.notify("Could not fetch a story image");
+    }
+  };
+
+  // Attach the suggested image: turn the data URL into a File and run it through
+  // the normal upload pipeline (validation + variants). Explicit operator action.
+  const attachSuggested = async () => {
+    if (!suggestedImage) return;
+    try {
+      const blob = await (await fetch(suggestedImage.dataUrl)).blob();
+      const ext = (blob.type.split("/")[1] || "jpg").replace("jpeg", "jpg");
+      await attachFile(new File([blob], `story-image.${ext}`, { type: blob.type }));
+      setSuggestedImage(null);
+    } catch {
+      s.notify("Couldn't attach that image");
+    }
+  };
+
   return (
     <div className="composeGrid">
       <div>
@@ -220,6 +268,41 @@ export default function ComposePage() {
             e.target.value = "";
           }}
         />
+        {suggestedImage && (
+          <div
+            style={{
+              border: "2px solid var(--color-accent)",
+              background: "var(--color-accent-100, #eef4ff)",
+              padding: 10,
+              marginBottom: 16,
+              display: "flex",
+              gap: 12,
+              alignItems: "flex-start",
+            }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={suggestedImage.dataUrl}
+              alt="Suggested story image"
+              style={{ width: 96, height: 96, objectFit: "cover", flex: "none", borderRadius: 6 }}
+            />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 2 }}>Suggested image</div>
+              <div style={{ fontSize: 11.5, color: "var(--color-neutral-700)", marginBottom: 8 }}>
+                From <strong>{suggestedImage.publisher}</strong>. You&apos;re responsible for the rights to reuse this
+                image — attach it only if you have permission.
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button className="btn btn-primary" onClick={attachSuggested} disabled={uploading} style={{ fontSize: 12, padding: "4px 10px" }}>
+                  {uploading ? "Attaching…" : "Attach image"}
+                </button>
+                <button className="btn btn-ghost" onClick={() => setSuggestedImage(null)} style={{ fontSize: 12, padding: "4px 10px" }}>
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {attached ? (
           <div
             style={{
@@ -875,6 +958,15 @@ export default function ComposePage() {
                       style={{ fontSize: 12, padding: "4px 10px" }}
                     >
                       <Sparkles size={13} /> {aiItemId === it.id ? "Writing…" : "AI draft"}
+                    </button>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => suggestImage(it)}
+                      disabled={imgItemId === it.id}
+                      title="Suggest the story's image (you decide whether the rights allow reuse)"
+                      style={{ fontSize: 12, padding: "4px 10px" }}
+                    >
+                      {imgItemId === it.id ? "Finding…" : "🖼 Image"}
                     </button>
                   </div>
                 </div>

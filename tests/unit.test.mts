@@ -376,6 +376,27 @@ test("feed-draft: cleanLink strips tracking + drops Google News + over-long URLs
   assert.equal(FD.cleanLink("not a url"), null);
 });
 
+// ── og:image extraction (src/lib/server/og-image) ─────────────────────────
+const OG = await import("../src/lib/server/og-image");
+
+test("og-image: extractOgImage reads og:image / twitter:image and resolves relative URLs", () => {
+  assert.equal(
+    OG.extractOgImage('<meta property="og:image" content="https://cdn.pub/a.jpg">', "https://pub.com/x"),
+    "https://cdn.pub/a.jpg",
+  );
+  assert.equal(
+    OG.extractOgImage('<meta content="/img/a.png" property="og:image">', "https://pub.com/story"),
+    "https://pub.com/img/a.png",
+    "reversed attr order + relative URL resolved against the page",
+  );
+  assert.equal(
+    OG.extractOgImage('<meta name="twitter:image" content="https://cdn.pub/t.jpg">', "https://pub.com"),
+    "https://cdn.pub/t.jpg",
+    "twitter:image fallback",
+  );
+  assert.equal(OG.extractOgImage("<html>no meta here</html>", "https://pub.com"), null);
+});
+
 // ── Article link resolution (src/lib/server/resolve-link) ─────────────────
 const RL = await import("../src/lib/server/resolve-link");
 
