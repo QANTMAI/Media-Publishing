@@ -343,6 +343,39 @@ test("date-util: timeOptions spans the day on the given minute step", () => {
   assert.equal(DU.timeOptions(30).length, 48);
 });
 
+// ── Trending "Draft a post" caption cleanup (src/lib/feed-draft) ───────────
+const FD = await import("../src/lib/feed-draft");
+
+test("feed-draft: a Google News item yields a clean headline + publisher, no giant redirect URL", () => {
+  const cap = FD.feedDraftCaption({
+    title: "EU in talks with OpenAI, Anthropic after rogue AI agent hacks - Reuters",
+    sourceTitle: '"artificial intelligence" when:1d - Google News',
+    link: "https://news.google.com/rss/articles/CBMivwFBVV95cUxQ" + "x".repeat(180),
+  });
+  assert.equal(cap, "EU in talks with OpenAI, Anthropic after rogue AI agent hacks — Reuters");
+  assert.ok(!/news\.google\.com/.test(cap), "the redirect URL is dropped");
+  assert.ok(cap.length <= 300, "within Bluesky limit");
+});
+
+test("feed-draft: splitHeadline rejects a search-query source, keeps a real one", () => {
+  assert.deepEqual(FD.splitHeadline("Big story - The Verge", "whatever"), {
+    headline: "Big story",
+    publisher: "The Verge",
+  });
+  // No " - Publisher" suffix, messy source → headline only, no publisher.
+  assert.deepEqual(FD.splitHeadline("Just a headline", '"ai" when:1d - Google News'), {
+    headline: "Just a headline",
+    publisher: "",
+  });
+});
+
+test("feed-draft: cleanLink strips tracking + drops Google News + over-long URLs", () => {
+  assert.equal(FD.cleanLink("https://reuters.com/tech/story?utm_source=x&oc=5"), "https://reuters.com/tech/story");
+  assert.equal(FD.cleanLink("https://news.google.com/rss/articles/CBMi123"), null);
+  assert.equal(FD.cleanLink("https://example.com/" + "a".repeat(90)), null, "too long to be clean");
+  assert.equal(FD.cleanLink("not a url"), null);
+});
+
 // ── Repurpose (AI-2) — pure spec/prompt/validation ────────────────────────
 const RP = await import("../src/lib/server/repurpose");
 

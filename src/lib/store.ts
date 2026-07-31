@@ -15,6 +15,7 @@ import type {
   SocialAccount,
 } from "./types";
 import { CATEGORY_COLORS, CATEGORY_FALLBACK_COLOR, MARK_TO_PLATFORM } from "./platforms";
+import { feedDraftCaption } from "./feed-draft";
 
 /* Server truth: auth (httpOnly cookies), accounts (/api/accounts), posts and
  * jobs (/api/posts), kill switch + autopilot (/api/settings). This store is a
@@ -240,7 +241,9 @@ export const usePortal = create<PortalState>()(
       draftFromFeed: (item) => {
         const hasTrend = get().categories.some((c) => c.name === "Trend");
         set({
-          caption: `${item.title}\n\nvia ${item.sourceTitle}: ${item.link}`,
+          // Clean headline + publisher; drop the giant Google News redirect URL
+          // (see feedDraftCaption). Was a raw dump that garbled the caption.
+          caption: feedDraftCaption(item),
           ...(hasTrend ? { category: "Trend" } : {}),
         });
         get().notify("Draft started from trending item");
