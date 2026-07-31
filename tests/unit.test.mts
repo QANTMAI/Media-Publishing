@@ -376,6 +376,38 @@ test("feed-draft: cleanLink strips tracking + drops Google News + over-long URLs
   assert.equal(FD.cleanLink("not a url"), null);
 });
 
+// ── AI caption from a trending item (src/lib/server/feed-caption) ──────────
+const FC = await import("../src/lib/server/feed-caption");
+
+test("feed-caption: clampMaxChars bounds the limit, with a default", () => {
+  assert.equal(FC.clampMaxChars(280), 280);
+  assert.equal(FC.clampMaxChars(5), 80, "clamps to floor");
+  assert.equal(FC.clampMaxChars(99999), 3000, "clamps to ceiling");
+  assert.equal(FC.clampMaxChars(undefined), 280, "default when missing");
+  assert.equal(FC.clampMaxChars("nope"), 280, "default when not a number");
+});
+
+test("feed-caption: prompt grounds strictly in the item, preserves hedging cues, enforces limit + voice", () => {
+  const p = FC.buildFeedCaptionPrompt(
+    { title: "EU opens AI probe", summary: "Regulators are reportedly in talks.", sourceTitle: "Reuters" },
+    "Tone: wry",
+    ["a past post"],
+    240,
+  );
+  assert.match(p, /introduce no facts not present/i, "source-grounding instruction present");
+  assert.match(p, /EU opens AI probe/);
+  assert.match(p, /reportedly in talks/, "summary (with its hedging) is passed through");
+  assert.match(p, /Source: Reuters/);
+  assert.match(p, /Tone: wry/);
+  assert.match(p, /at most 240 characters/);
+});
+
+test("feed-caption: SYSTEM prompt forbids fabrication and preserves uncertainty (accuracy gate)", () => {
+  assert.match(FC.FEED_CAPTION_SYSTEM, /Do NOT invent/i);
+  assert.match(FC.FEED_CAPTION_SYSTEM, /reportedly|in talks|uncertainty/i);
+  assert.match(FC.FEED_CAPTION_SYSTEM, /No URLs/i);
+});
+
 // ── Repurpose (AI-2) — pure spec/prompt/validation ────────────────────────
 const RP = await import("../src/lib/server/repurpose");
 

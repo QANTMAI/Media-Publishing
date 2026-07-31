@@ -36,6 +36,7 @@ export default function ComposePage() {
   const [publishing, setPublishing] = useState(false);
   const [newCat, setNewCat] = useState<string | null>(null); // inline ＋New name, null = closed
   const [feedBusy, setFeedBusy] = useState(false);
+  const [aiItemId, setAiItemId] = useState<string | null>(null); // feed item being AI-drafted
 
   // Pull the operator's trending items for the assist rail.
   useEffect(() => {
@@ -146,6 +147,49 @@ export default function ComposePage() {
         (await res.json()).error ??
           (mode === "draft" ? "Save failed" : mode === "now" ? "Publish failed" : "Scheduling failed"),
       );
+    }
+  };
+
+  // AI caption from a trending item: source-grounded, brand-voice, sized to the
+  // tightest selected platform so the base caption fits everywhere. Seeds the
+  // composer as an editable draft — never auto-publishes.
+  const aiDraftFromFeed = async (it: { id: string }) => {
+    setAiItemId(it.id);
+    const maxChars = selPlatforms.length
+      ? Math.min(...selPlatforms.map((p) => PLATFORM_RULES[p]?.limit ?? 280))
+      : 280;
+    let res: Response;
+    try {
+      res = await fetch("/api/feeds/caption", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ feedItemId: it.id, maxChars }),
+      });
+    } catch {
+      setAiItemId(null);
+      s.notify("Couldn't reach the server");
+      return;
+    }
+    setAiItemId(null);
+    const d = await res.json().catch(() => ({}));
+    if (d.ok) {
+      const hasTrend = s.categories.some((c) => c.name === "Trend");
+      s.setComposer({ caption: d.caption, ...(hasTrend ? { category: "Trend" } : {}) });
+      s.notify(
+        d.overLimit
+          ? `AI caption ready — ${d.caption.length}/${d.maxChars}, trim to fit`
+          : "AI caption ready — review & edit before scheduling",
+      );
+    } else if (d.reason === "no_anthropic_key") {
+      s.notify("Add your Anthropic key in Settings → Integrations & keys to use AI captions");
+    } else if (d.reason === "rate_limited") {
+      s.notify("Too many AI drafts — try again shortly");
+    } else if (d.reason === "no_item") {
+      s.notify("Refresh the feed and try again");
+    } else if (d.reason === "api_error") {
+      s.notify(`AI draft failed: ${d.status ?? "provider error"}`);
+    } else {
+      s.notify("Could not generate a caption");
     }
   };
 
@@ -815,13 +859,24 @@ export default function ComposePage() {
                     {it.sourceTitle}
                     {it.publishedAt ? ` · ${feedTimeAgo(it.publishedAt)}` : ""}
                   </div>
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => s.draftFromFeed(it)}
-                    style={{ fontSize: 12, padding: "4px 10px" }}
-                  >
-                    Draft a post
-                  </button>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => s.draftFromFeed(it)}
+                      style={{ fontSize: 12, padding: "4px 10px" }}
+                    >
+                      Draft a post
+                    </button>
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => aiDraftFromFeed(it)}
+                      disabled={aiItemId === it.id}
+                      title="Write a caption from this story in your brand voice (uses your Anthropic key)"
+                      style={{ fontSize: 12, padding: "4px 10px" }}
+                    >
+                      <Sparkles size={13} /> {aiItemId === it.id ? "Writing…" : "AI draft"}
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

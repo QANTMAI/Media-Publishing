@@ -1863,3 +1863,14 @@ test("repurpose: persistDraft creates a review-inbox draft with per-channel capt
     await db.post.delete({ where: { id: postId } }).catch(() => {});
   }
 });
+
+// ── AI caption from a trending item (feeds/caption) ────────────────────────
+test("feed caption: auth-gated; honest no-op without an Anthropic key", async () => {
+  assert.equal((await fetch(`${BASE}/api/feeds/caption`, { method: "POST", body: "{}" })).status, 401);
+  // Key gate runs before the item lookup, so any id returns the honest no-op.
+  const res = await api("/api/feeds/caption", { method: "POST", body: JSON.stringify({ feedItemId: "whatever", maxChars: 280 }) });
+  assert.equal(res.status, 200, "no-op is a state, not an error");
+  const d = await res.json();
+  assert.equal(d.ok, false);
+  assert.equal(d.reason, "no_anthropic_key");
+});

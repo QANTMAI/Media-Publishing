@@ -193,7 +193,7 @@ export const AUDIT_ACTIONS = {
   asset: ["asset.upload", "asset.transcoded", "asset.transcode_failed", "asset.delete"],
   category: ["category.create", "category.update", "category.delete"],
   credential: ["credential.set", "credential.test", "credential.delete"],
-  feed: ["feed.add", "feed.toggle", "feed.delete"],
+  feed: ["feed.add", "feed.toggle", "feed.delete", "feed.caption"],
   notify: ["notify.prefs"],
   metrics: ["metrics.collected", "metrics.rate_limited"],
   memory: ["memory.create", "memory.update", "memory.archive", "memory.link", "memory.seed", "memory.distill"],
