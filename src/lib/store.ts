@@ -238,14 +238,25 @@ export const usePortal = create<PortalState>()(
       /** Seed the composer from a trending item — a real starting point (title +
        * link), NOT AI-generated text. Categorizes as "Trend" when that category
        * exists. */
-      draftFromFeed: (item) => {
+      draftFromFeed: async (item) => {
         const hasTrend = get().categories.some((c) => c.name === "Trend");
-        set({
-          // Clean headline + publisher; drop the giant Google News redirect URL
-          // (see feedDraftCaption). Was a raw dump that garbled the caption.
-          caption: feedDraftCaption(item),
-          ...(hasTrend ? { category: "Trend" } : {}),
+        // Server draft = clean headline + publisher + a RESOLVED working link to
+        // the article (Google News redirects resolved server-side).
+        const res = await apiFetch("/api/feeds/draft", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ feedItemId: item.id }),
         });
+        if (res?.ok) {
+          const d = await res.json().catch(() => ({}));
+          if (d.ok) {
+            set({ caption: d.caption, ...(hasTrend ? { category: "Trend" } : {}) });
+            get().notify("Draft started — with a link to the article");
+            return;
+          }
+        }
+        // Fallback (offline / resolve failed): clean caption, no link.
+        set({ caption: feedDraftCaption(item), ...(hasTrend ? { category: "Trend" } : {}) });
         get().notify("Draft started from trending item");
       },
 
