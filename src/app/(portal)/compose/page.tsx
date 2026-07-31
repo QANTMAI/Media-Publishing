@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, ExternalLink, Heart, MessageCircle, Plus, RefreshCw, Share, Sparkles, TrendingUp, X as XIcon } from "lucide-react";
 import { usePortal, selectableAccounts } from "@/lib/store";
 import { uploadAsset, type UploadedAsset } from "@/lib/upload";
+import { DatePicker } from "@/components/DatePicker";
 import {
   BRAND_HASHTAGS,
   COMPOSER_PLATFORMS,
@@ -31,6 +32,7 @@ export default function ComposePage() {
   const [uploading, setUploading] = useState(false);
   const [acctMenu, setAcctMenu] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [newCat, setNewCat] = useState<string | null>(null); // inline ＋New name, null = closed
   const [feedBusy, setFeedBusy] = useState(false);
 
@@ -96,7 +98,7 @@ export default function ComposePage() {
     items: s.accounts.filter((a) => MARK_TO_PLATFORM[a.mark] === pid && a.status !== "disconnected"),
   })).filter((g) => g.items.length > 0);
 
-  const submit = async (mode: "schedule" | "draft") => {
+  const submit = async (mode: "schedule" | "draft" | "now") => {
     if (!s.caption.trim()) {
       s.notify("Write a caption first");
       return;
@@ -106,6 +108,7 @@ export default function ComposePage() {
       return;
     }
     if (mode === "draft") setSaving(true);
+    if (mode === "now") setPublishing(true);
     const res = await fetch("/api/posts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -118,9 +121,11 @@ export default function ComposePage() {
         time: s.time,
         tz: s.tz,
         draft: mode === "draft",
+        publishNow: mode === "now",
       }),
     });
     if (mode === "draft") setSaving(false);
+    if (mode === "now") setPublishing(false);
     if (res.ok) {
       const d = await res.json();
       s.setComposer({ caption: "" });
@@ -128,12 +133,18 @@ export default function ComposePage() {
       await s.refreshPosts();
       if (mode === "draft") {
         s.notify(`Saved ${d.targetCount} draft${d.targetCount > 1 ? "s" : ""} — nothing published`);
+      } else if (mode === "now") {
+        s.notify(`Publishing now to ${d.targetCount} account${d.targetCount > 1 ? "s" : ""} — landing shortly`);
+        router.push("/dashboard");
       } else {
         s.notify(`Scheduled ${d.targetCount} post${d.targetCount > 1 ? "s" : ""} · ${s.time} ${s.tz.split(" ")[0]}`);
         router.push("/calendar");
       }
     } else {
-      s.notify((await res.json()).error ?? (mode === "draft" ? "Save failed" : "Scheduling failed"));
+      s.notify(
+        (await res.json()).error ??
+          (mode === "draft" ? "Save failed" : mode === "now" ? "Publish failed" : "Scheduling failed"),
+      );
     }
   };
 
@@ -590,13 +601,7 @@ export default function ComposePage() {
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <div className="field" style={{ flex: 1, minWidth: 150 }}>
               <label htmlFor="date">Date</label>
-              <input
-                id="date"
-                className="input"
-                type="date"
-                value={s.date}
-                onChange={(e) => s.setComposer({ date: e.target.value })}
-              />
+              <DatePicker id="date" value={s.date} onChange={(v) => s.setComposer({ date: v })} />
             </div>
             <div className="field" style={{ width: 110 }}>
               <label htmlFor="time">Time</label>
@@ -672,13 +677,27 @@ export default function ComposePage() {
             <button
               className="btn btn-secondary"
               onClick={() => submit("draft")}
-              disabled={saving}
+              disabled={saving || publishing}
               style={{ height: 42, whiteSpace: "nowrap" }}
             >
               {saving ? "Saving…" : "Save draft"}
             </button>
-            <button className="btn btn-primary" onClick={() => submit("schedule")} style={{ height: 42, whiteSpace: "nowrap" }}>
+            <button
+              className="btn btn-secondary"
+              onClick={() => submit("schedule")}
+              disabled={saving || publishing}
+              style={{ height: 42, whiteSpace: "nowrap" }}
+            >
               Schedule post
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={() => submit("now")}
+              disabled={saving || publishing}
+              style={{ height: 42, whiteSpace: "nowrap" }}
+              title="Publish immediately (lands within ~15s)"
+            >
+              {publishing ? "Publishing…" : "Publish now"}
             </button>
           </div>
         </div>

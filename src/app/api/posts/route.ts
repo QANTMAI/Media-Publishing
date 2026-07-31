@@ -67,9 +67,11 @@ export async function POST(req: Request) {
     time?: string;
     tz?: string;
     draft?: boolean;
+    publishNow?: boolean;
   } | null;
   if (!body) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   const isDraft = body.draft === true;
+  const publishNow = body.publishNow === true && !isDraft;
 
   const baseCaption = body.baseCaption?.trim() ?? "";
   if (!baseCaption) return NextResponse.json({ error: "Caption is required" }, { status: 400 });
@@ -81,14 +83,20 @@ export async function POST(req: Request) {
   const accountIds = [...new Set(body.accountIds)];
 
   let scheduledAt: Date;
-  try {
-    scheduledAt = zonedTimeToUtc(body.date ?? "", body.time ?? "", body.tz ?? "");
-  } catch (err) {
-    return NextResponse.json({ error: err instanceof Error ? err.message : "Invalid schedule" }, { status: 400 });
-  }
-  // Drafts can carry any intended time (including past) — nothing publishes.
-  if (!isDraft && scheduledAt.getTime() < Date.now() - 60_000) {
-    return NextResponse.json({ error: "Scheduled time is in the past" }, { status: 400 });
+  if (publishNow) {
+    // Publish now = schedule for this instant; the worker claims it on its next
+    // poll tick. No date/time parsing, and the past-time guard doesn't apply.
+    scheduledAt = new Date();
+  } else {
+    try {
+      scheduledAt = zonedTimeToUtc(body.date ?? "", body.time ?? "", body.tz ?? "");
+    } catch (err) {
+      return NextResponse.json({ error: err instanceof Error ? err.message : "Invalid schedule" }, { status: 400 });
+    }
+    // Drafts can carry any intended time (including past) — nothing publishes.
+    if (!isDraft && scheduledAt.getTime() < Date.now() - 60_000) {
+      return NextResponse.json({ error: "Scheduled time is in the past" }, { status: 400 });
+    }
   }
 
   const accounts = await db.socialAccount.findMany({
