@@ -18,7 +18,10 @@ export const META_SCOPES = [
 ].join(",");
 
 export function metaConfigured(): boolean {
-  return Boolean(process.env.META_APP_ID && process.env.META_APP_SECRET);
+  // All three required — metaAuthUrl() needs the redirect URI. Partial config
+  // must stay in mock mode, not send the operator to Facebook with
+  // redirect_uri=undefined. (LinkedIn/YouTube check all three too.)
+  return Boolean(process.env.META_APP_ID && process.env.META_APP_SECRET && process.env.META_REDIRECT_URI);
 }
 
 export function mockMode(): boolean {

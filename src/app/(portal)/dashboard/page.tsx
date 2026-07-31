@@ -93,7 +93,7 @@ export default function DashboardPage() {
           </div>
         </div>
         {[
-          { label: "Reach · 7d", value: metric(totals?.reach) },
+          { label: "Reach", value: metric(totals?.reach) },
           { label: "Engagement", value: metric(totals?.likes != null ? (totals.likes + (totals.comments ?? 0) + (totals.shares ?? 0)) : null) },
           { label: "New followers", value: "—" },
         ].map((m) => (
@@ -178,9 +178,11 @@ export default function DashboardPage() {
                 disabled={bulkBusy}
                 onClick={async () => {
                   setBulkBusy(true);
-                  // Sequential, not parallel — each approval schedules real
-                  // jobs; a burst of concurrent writes isn't worth the risk.
-                  for (const p of reviewDrafts) await approveDraft(p.postId);
+                  // Dedupe by postId: a repurpose draft is several channel rows
+                  // sharing one postId — approving it once covers them all, and
+                  // a second call would 'already scheduled'-error. Sequential,
+                  // not parallel — each approval schedules real jobs.
+                  for (const postId of [...new Set(reviewDrafts.map((p) => p.postId))]) await approveDraft(postId);
                   setBulkBusy(false);
                 }}
                 style={{ fontSize: 12, padding: "4px 10px" }}

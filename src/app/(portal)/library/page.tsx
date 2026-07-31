@@ -57,8 +57,14 @@ export default function LibraryPage() {
   };
 
   const onDelete = async (a: AssetListItem) => {
-    const res = await fetch(`/api/assets/${a.id}`, { method: "DELETE" });
-    notify(res.ok ? `Deleted ${a.filename}` : (await res.json()).error ?? "Delete failed");
+    let res: Response;
+    try {
+      res = await fetch(`/api/assets/${a.id}`, { method: "DELETE" });
+    } catch {
+      notify("Couldn't reach the server");
+      return;
+    }
+    notify(res.ok ? `Deleted ${a.filename}` : (await res.json().catch(() => ({}))).error ?? "Delete failed");
     refresh();
   };
 

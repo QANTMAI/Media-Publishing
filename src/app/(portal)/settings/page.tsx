@@ -40,13 +40,26 @@ export default function SettingsPage() {
   }, []);
 
   const saveMode = async (next: Mode) => {
-    setMode(next);
-    const res = await fetch("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ autopilotMode: next }),
-    });
-    notify(res.ok ? `Autopilot set to ${next === "auto" ? "auto-schedule" : "review"}` : "Could not save");
+    const prev = mode;
+    setMode(next); // optimistic
+    let res: Response;
+    try {
+      res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ autopilotMode: next }),
+      });
+    } catch {
+      setMode(prev); // revert — the cards must not show an unsaved mode
+      notify("Could not save — check your connection");
+      return;
+    }
+    if (res.ok) {
+      notify(`Autopilot set to ${next === "auto" ? "auto-schedule" : "review"}`);
+    } else {
+      setMode(prev); // revert on server error
+      notify("Could not save");
+    }
   };
 
   return (

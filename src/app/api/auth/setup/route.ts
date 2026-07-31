@@ -13,9 +13,17 @@ import { seedMemory } from "@/lib/server/seed-memory";
  * to confirm at /setup/confirm); otherwise the account is finalized right away
  * (demo accounts + memory seeded, session issued). Refuses once a user exists. */
 export async function POST(req: Request) {
-  if ((await db.user.count()) > 0) {
+  // Refuse only if a FINALIZED operator exists (2FA-confirmed OR password-only).
+  // A stale mid-enrollment user (secret set, unconfirmed) does not block setup —
+  // it's cleared below so enrollment can be restarted cleanly.
+  const finalized = await db.user.count({
+    where: { OR: [{ totpEnabled: true }, { totpEnabled: false, totpSecret: null }] },
+  });
+  if (finalized > 0) {
     return NextResponse.json({ error: "Already set up" }, { status: 409 });
   }
+  // Drop any abandoned 2FA-enrollment attempt (created but never confirmed).
+  await db.user.deleteMany({ where: { totpEnabled: false, totpSecret: { not: null } } });
 
   const { email, password, enable2fa } = (await req.json().catch(() => ({}))) as {
     email?: string;

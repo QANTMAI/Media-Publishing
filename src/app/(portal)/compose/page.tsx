@@ -34,6 +34,7 @@ export default function ComposePage() {
   const [acctMenu, setAcctMenu] = useState(false);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [scheduling, setScheduling] = useState(false);
   const [newCat, setNewCat] = useState<string | null>(null); // inline ＋New name, null = closed
   const [feedBusy, setFeedBusy] = useState(false);
   const [aiItemId, setAiItemId] = useState<string | null>(null); // feed item being AI-drafted
@@ -75,7 +76,17 @@ export default function ComposePage() {
     s.accounts.find((a) => a.id === active);
 
   const preview = s.caption.trim();
-  const over = preview.length > rules.limit;
+  // The base caption must fit EVERY selected platform, so validate against the
+  // tightest limit among them — not just the active tab (which could be roomy
+  // while another selected platform is over).
+  const tightest = selPlatforms.reduce<{ name: string; limit: number }>(
+    (min, p) => {
+      const r = PLATFORM_RULES[p];
+      return r && r.limit < min.limit ? { name: r.name, limit: r.limit } : min;
+    },
+    { name: rules.name, limit: rules.limit },
+  );
+  const over = preview.length > tightest.limit;
   const charStyle: React.CSSProperties = over
     ? { color: "var(--color-accent-2-700)", fontWeight: 600 }
     : { color: "var(--color-neutral-600)" };
@@ -111,8 +122,10 @@ export default function ComposePage() {
       s.notify("Select at least one account");
       return;
     }
+    if (saving || publishing || scheduling) return; // guard against double-submit
     if (mode === "draft") setSaving(true);
     if (mode === "now") setPublishing(true);
+    if (mode === "schedule") setScheduling(true);
     const res = await fetch("/api/posts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -130,6 +143,7 @@ export default function ComposePage() {
     });
     if (mode === "draft") setSaving(false);
     if (mode === "now") setPublishing(false);
+    if (mode === "schedule") setScheduling(false);
     if (res.ok) {
       const d = await res.json();
       s.setComposer({ caption: "" });
@@ -703,10 +717,12 @@ export default function ComposePage() {
               }}
             >
               <span style={charStyle}>
-                {over ? `${preview.length - rules.limit} over the ${rules.name} limit` : `Within ${rules.name} limits`}
+                {over
+                  ? `${preview.length - tightest.limit} over the ${tightest.name} limit`
+                  : `Within ${tightest.name} limits`}
               </span>
               <span style={charStyle}>
-                {preview.length} / {rules.limit.toLocaleString()}
+                {preview.length} / {tightest.limit.toLocaleString()}
               </span>
             </div>
           </div>
@@ -787,7 +803,7 @@ export default function ComposePage() {
             <button
               className="btn btn-secondary"
               onClick={() => submit("draft")}
-              disabled={saving || publishing}
+              disabled={saving || publishing || scheduling}
               style={{ height: 42, whiteSpace: "nowrap" }}
             >
               {saving ? "Saving…" : "Save draft"}
@@ -795,15 +811,15 @@ export default function ComposePage() {
             <button
               className="btn btn-secondary"
               onClick={() => submit("schedule")}
-              disabled={saving || publishing}
+              disabled={saving || publishing || scheduling}
               style={{ height: 42, whiteSpace: "nowrap" }}
             >
-              Schedule post
+              {scheduling ? "Scheduling…" : "Schedule post"}
             </button>
             <button
               className="btn btn-primary"
               onClick={() => submit("now")}
-              disabled={saving || publishing}
+              disabled={saving || publishing || scheduling}
               style={{ height: 42, whiteSpace: "nowrap" }}
               title="Publish immediately (lands within ~15s)"
             >
