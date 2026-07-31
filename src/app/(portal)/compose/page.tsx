@@ -7,6 +7,7 @@ import { usePortal, selectableAccounts } from "@/lib/store";
 import { uploadAsset, type UploadedAsset } from "@/lib/upload";
 import { DatePicker } from "@/components/DatePicker";
 import { TimePicker } from "@/components/TimePicker";
+import { trendingHashtags } from "@/lib/trending-tags";
 import {
   BRAND_HASHTAGS,
   COMPOSER_PLATFORMS,
@@ -40,6 +41,7 @@ export default function ComposePage() {
   const [aiItemId, setAiItemId] = useState<string | null>(null); // feed item being AI-drafted
   const [imgItemId, setImgItemId] = useState<string | null>(null); // feed item having its image fetched
   const [suggestedImage, setSuggestedImage] = useState<{ dataUrl: string; publisher: string } | null>(null);
+  const [polishing, setPolishing] = useState(false); // "Write with AI" in flight
 
   // Pull the operator's trending items for the assist rail.
   useEffect(() => {
@@ -93,7 +95,11 @@ export default function ComposePage() {
 
   const categoryNames = s.categories.map((c) => c.name);
   const activeCat = s.categories.find((c) => c.name === s.category);
-  const hashtags = [...(activeCat?.hashtags ?? []), ...BRAND_HASHTAGS]
+  // Prefer hashtags derived from the ACTUAL trending feed titles; fall back to
+  // the category's starter tags when the feed is empty.
+  const trendTags = trendingHashtags(s.feedItems.map((it) => it.title));
+  const hashtagsFromTrends = trendTags.length > 0;
+  const hashtags = (hashtagsFromTrends ? [...trendTags, ...BRAND_HASHTAGS.slice(0, 2)] : [...(activeCat?.hashtags ?? []), ...BRAND_HASHTAGS])
     .filter((t, i, a) => a.indexOf(t) === i)
     .slice(0, 8);
 
@@ -259,6 +265,45 @@ export default function ComposePage() {
       setSuggestedImage(null);
     } catch {
       s.notify("Couldn't attach that image");
+    }
+  };
+
+  // Rewrite the current draft into a brand-voice caption via the operator's
+  // Anthropic key. Sized to the tightest selected platform; draft-only.
+  const polishWithAI = async () => {
+    if (!s.caption.trim()) {
+      s.notify("Type a rough idea first — I'll rewrite it in your voice");
+      return;
+    }
+    setPolishing(true);
+    const maxChars = selPlatforms.length
+      ? Math.min(...selPlatforms.map((p) => PLATFORM_RULES[p]?.limit ?? 280))
+      : 280;
+    let res: Response;
+    try {
+      res = await fetch("/api/compose/caption", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: s.caption, maxChars }),
+      });
+    } catch {
+      setPolishing(false);
+      s.notify("Couldn't reach the server");
+      return;
+    }
+    setPolishing(false);
+    const d = await res.json().catch(() => ({}));
+    if (d.ok) {
+      s.setComposer({ caption: d.caption });
+      s.notify(d.overLimit ? `Rewritten — ${d.caption.length}/${d.maxChars}, trim to fit` : "Rewritten in your brand voice");
+    } else if (d.reason === "no_anthropic_key") {
+      s.notify("Add your Anthropic key in Settings → Integrations & keys");
+    } else if (d.reason === "no_text") {
+      s.notify("Type a rough idea first");
+    } else if (d.reason === "rate_limited") {
+      s.notify("Too many AI rewrites — try again shortly");
+    } else {
+      s.notify(`AI rewrite failed: ${d.status ?? "provider error"}`);
     }
   };
 
@@ -602,19 +647,15 @@ export default function ComposePage() {
         <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 16 }}>
           <button
             className="btn btn-ghost"
-            onClick={() => {
-              s.setComposer({
-                caption:
-                  "Behind every drop is a long studio day ☕ — here's a peek at how this week's capsule came together. Which piece is your favourite?",
-              });
-              s.notify("Example caption inserted");
-            }}
+            onClick={polishWithAI}
+            disabled={polishing}
+            title="Rewrite your draft in your brand voice (uses your Anthropic key)"
             style={{ border: "2px solid var(--color-accent-300)" }}
           >
-            <Sparkles size={14} /> Insert example caption
+            <Sparkles size={14} /> {polishing ? "Writing…" : "Write with AI"}
           </button>
           <span style={{ fontSize: 12, color: "var(--color-neutral-600)" }}>
-            AI captions land with the AI studio (bring-your-own-key)
+            Rewrites your draft in your brand voice · needs your Anthropic key
           </span>
         </div>
 
@@ -623,7 +664,9 @@ export default function ComposePage() {
           <p className="kick" style={{ margin: 0 }}>
             Suggested hashtags
           </p>
-          <span style={{ fontSize: 11, color: "var(--color-neutral-600)" }}>for {s.category} · tap to add</span>
+          <span style={{ fontSize: 11, color: "var(--color-neutral-600)" }}>
+            {hashtagsFromTrends ? "from your trending feeds · tap to add" : `for ${s.category} · tap to add`}
+          </span>
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
           {hashtags.map((t) => {

@@ -1864,3 +1864,12 @@ test("feed image suggestion is auth-gated", async () => {
 test("feed plain-draft endpoint is auth-gated", async () => {
   assert.equal((await fetch(`${BASE}/api/feeds/draft`, { method: "POST", body: "{}" })).status, 401);
 });
+
+test("compose 'Write with AI' is auth-gated with an honest no-key no-op", async () => {
+  assert.equal((await fetch(`${BASE}/api/compose/caption`, { method: "POST", body: "{}" })).status, 401);
+  const res = await api("/api/compose/caption", { method: "POST", body: JSON.stringify({ text: "rough idea", maxChars: 280 }) });
+  assert.equal(res.status, 200);
+  const d = await res.json();
+  assert.equal(d.ok, false);
+  assert.equal(d.reason, "no_anthropic_key");
+});

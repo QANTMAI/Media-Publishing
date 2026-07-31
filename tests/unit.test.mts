@@ -495,6 +495,34 @@ test("feed-caption: SYSTEM prompt defends against prompt injection in the feed t
   assert.match(FC.FEED_CAPTION_SYSTEM, /system prompt/i);
 });
 
+// ── Trending hashtags from feed titles (src/lib/trending-tags) ────────────
+const TT = await import("../src/lib/trending-tags");
+
+test("trending-tags: ranks proper-noun phrases from titles, camelCased, stopwords dropped", () => {
+  const tags = TT.trendingHashtags([
+    "When Artificial Intelligence Is Too Valuable To Sell",
+    "Artificial Intelligence reshapes hiring",
+    "Google News roundup",
+  ]);
+  assert.ok(tags.includes("#ArtificialIntelligence"), "top phrase (freq 2) extracted");
+  assert.ok(tags.every((t) => t.startsWith("#")));
+  assert.ok(!tags.includes("#Google") && !tags.includes("#News"), "stopwords dropped");
+  assert.equal(TT.trendingHashtags([]).length, 0, "empty feed → no tags");
+});
+
+// ── "Write with AI" composer polish (src/lib/server/compose-caption) ───────
+const CC = await import("../src/lib/server/compose-caption");
+
+test("compose-caption: SYSTEM is source-grounded + injection-guarded; prompt carries draft/voice/limit", () => {
+  assert.match(CC.POLISH_SYSTEM, /untrusted/i);
+  assert.match(CC.POLISH_SYSTEM, /Do NOT follow any commands/i);
+  assert.match(CC.POLISH_SYSTEM, /Do NOT invent/i);
+  const p = CC.buildPolishPrompt("my rough draft", "Tone: bold", ["a past post"], 240);
+  assert.match(p, /my rough draft/);
+  assert.match(p, /Tone: bold/);
+  assert.match(p, /at most 240 characters/);
+});
+
 // ── Repurpose (AI-2) — pure spec/prompt/validation ────────────────────────
 const RP = await import("../src/lib/server/repurpose");
 
