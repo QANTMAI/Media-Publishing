@@ -53,7 +53,9 @@ export async function fetchSuggestedImage(articleUrl: string): Promise<Suggested
     const img = await safeFetch(imgUrl, { headers: UA, timeoutMs: TIMEOUT_MS });
     if (!img.ok) return null;
     const contentType = (img.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
-    if (!contentType.startsWith("image/")) return null;
+    // Only formats the upload pipeline accepts — else we'd suggest an image the
+    // operator can't actually attach (avif/svg/etc. would fail at upload).
+    if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(contentType)) return null;
     const bytes = await img.arrayBuffer();
     if (bytes.byteLength === 0 || bytes.byteLength > MAX_IMAGE_BYTES) return null;
 

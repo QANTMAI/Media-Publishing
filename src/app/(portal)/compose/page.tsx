@@ -246,9 +246,16 @@ export default function ComposePage() {
   const attachSuggested = async () => {
     if (!suggestedImage) return;
     try {
-      const blob = await (await fetch(suggestedImage.dataUrl)).blob();
-      const ext = (blob.type.split("/")[1] || "jpg").replace("jpeg", "jpg");
-      await attachFile(new File([blob], `story-image.${ext}`, { type: blob.type }));
+      // Decode the data URL by hand — fetch() on a data: URL is blocked by our
+      // CSP (connect-src 'self'); the <img> preview works only because img-src
+      // allows data:. atob → bytes → File, then the normal upload pipeline.
+      const [head, b64] = suggestedImage.dataUrl.split(",");
+      const mime = head.match(/data:([^;]+)/)?.[1] ?? "image/jpeg";
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const ext = (mime.split("/")[1] || "jpg").replace("jpeg", "jpg");
+      await attachFile(new File([bytes], `story-image.${ext}`, { type: mime }));
       setSuggestedImage(null);
     } catch {
       s.notify("Couldn't attach that image");
