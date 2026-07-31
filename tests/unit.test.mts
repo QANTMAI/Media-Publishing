@@ -473,6 +473,16 @@ test("feed-caption: prompt grounds strictly in the item, preserves hedging cues,
   assert.match(p, /at most 240 characters/);
 });
 
+test("feed-caption: clampToBudget hard-enforces the char budget at a word boundary", () => {
+  assert.equal(FC.clampToBudget("short one", 50), "short one", "under budget unchanged");
+  const out = FC.clampToBudget("the quick brown fox jumps over the lazy dog", 20);
+  assert.ok(out.length <= 20, "never exceeds the budget");
+  assert.ok(!/\s$/.test(out) && !/[.,;:!?-]$/.test(out), "trailing space/punct trimmed");
+  assert.ok("the quick brown fox jumps over the lazy dog".startsWith(out.replace(/…$/, "")), "prefix of the original");
+  // A single very long token still gets hard-cut to the budget.
+  assert.ok(FC.clampToBudget("x".repeat(100), 30).length <= 30);
+});
+
 test("feed-caption: SYSTEM prompt forbids fabrication and preserves uncertainty (accuracy gate)", () => {
   assert.match(FC.FEED_CAPTION_SYSTEM, /Do NOT invent/i);
   assert.match(FC.FEED_CAPTION_SYSTEM, /reportedly|in talks|uncertainty/i);

@@ -51,7 +51,25 @@ export async function callClaudeStructured<T = unknown>(opts: ClaudeStructuredOp
     );
   }
   if (!res.ok) {
-    throw new AnthropicError(res.status === 401 ? "Key was rejected (401 unauthorized)" : `Provider returned ${res.status}`);
+    // Surface the provider's own reason so failures are actionable, not an
+    // opaque "Provider returned 400". The error body carries no secrets.
+    const detail = await res.text().catch(() => "");
+    let providerMsg = "";
+    try {
+      providerMsg = (JSON.parse(detail) as { error?: { message?: string } })?.error?.message ?? "";
+    } catch {
+      // non-JSON body — ignore
+    }
+    if (res.status >= 400 && res.status < 500 && res.status !== 401) {
+      console.error(`[anthropic] ${res.status} on ${model}: ${detail.slice(0, 500)}`);
+    }
+    let status: string;
+    if (res.status === 401) status = "Key was rejected (401 unauthorized)";
+    else if (/credit balance/i.test(providerMsg)) status = "Anthropic credit balance too low — add credits in your Anthropic console";
+    else if (res.status === 429) status = "Rate limited by Anthropic — wait a moment and retry";
+    else if (providerMsg) status = providerMsg.slice(0, 160);
+    else status = `Provider returned ${res.status}`;
+    throw new AnthropicError(status);
   }
   const data = (await res.json().catch(() => null)) as MessagesResponse | null;
   if (!data) throw new AnthropicError("Unreadable response from the provider");

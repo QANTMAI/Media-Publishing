@@ -28,6 +28,18 @@ export function clampMaxChars(n: unknown): number {
   return Math.max(MIN_MAX_CHARS, Math.min(v, HARD_MAX_CHARS));
 }
 
+/** Hard-enforce a character budget on generated text — LLMs don't count chars
+ * reliably and overshoot. Truncate at a word boundary when a sensible one
+ * exists, else hard-cut, then trim trailing space/punctuation. Pure. */
+export function clampToBudget(text: string, budget: number): string {
+  const t = text.trim();
+  if (t.length <= budget) return t;
+  const cut = t.slice(0, budget);
+  const lastSpace = cut.lastIndexOf(" ");
+  const trimmed = lastSpace > budget * 0.6 ? cut.slice(0, lastSpace) : cut;
+  return trimmed.replace(/[\s.,;:!?-]+$/, "").trimEnd();
+}
+
 export const FEED_CAPTION_SYSTEM = [
   "You write ONE social-media caption about a NEWS item for a creator.",
   "",
@@ -115,9 +127,12 @@ export async function generateFeedCaption(
 
   const [voice, corpus] = await Promise.all([getBrandVoice(userId), buildVoiceCorpus(userId, 5)]);
 
-  // Resolve a clean article link in parallel with generation. Best-effort:
-  // returns null (→ no link appended) on any failure, never a broken URL.
-  const linkPromise = resolveArticleUrl(item.link);
+  // Resolve the link FIRST so the caption can be budgeted to leave room for it.
+  // (Appending a link onto a full-length caption is what pushed drafts over the
+  // platform limit.) Best-effort: null on any failure, never a broken URL.
+  const link = await resolveArticleUrl(item.link).catch(() => null);
+  const linkTax = link ? link.length + 2 : 0; // "\n\n" + url
+  const captionBudget = Math.max(60, maxChars - linkTax);
 
   let raw: { caption?: unknown };
   try {
@@ -125,19 +140,19 @@ export async function generateFeedCaption(
       key,
       model: MODEL,
       system: FEED_CAPTION_SYSTEM,
-      user: buildFeedCaptionPrompt({ title, summary, sourceTitle: item.source.title }, buildVoiceBlock(voice), corpus, maxChars),
+      user: buildFeedCaptionPrompt({ title, summary, sourceTitle: item.source.title }, buildVoiceBlock(voice), corpus, captionBudget),
       schema: FEED_CAPTION_SCHEMA,
       maxTokens: 1024,
     });
   } catch (err) {
-    void linkPromise.catch(() => {}); // don't leak an unhandled rejection
     return { ok: false, reason: "api_error", status: err instanceof AnthropicError ? err.status : "Generation failed" };
   }
 
-  const body = typeof raw?.caption === "string" ? raw.caption.trim() : "";
-  if (!body) return { ok: false, reason: "api_error", status: "No caption was generated" };
-
-  const link = await linkPromise.catch(() => null);
+  const generated = typeof raw?.caption === "string" ? raw.caption.trim() : "";
+  if (!generated) return { ok: false, reason: "api_error", status: "No caption was generated" };
+  // LLMs don't count characters reliably — hard-enforce the budget so that the
+  // caption plus the appended link never exceeds the platform limit.
+  const body = clampToBudget(generated, captionBudget);
   const caption = link ? `${body}\n\n${link}` : body;
 
   await audit("feed.caption", { userId, metadata: { feedItemId, chars: caption.length, resolvedLink: !!link } });
