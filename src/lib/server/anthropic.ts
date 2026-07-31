@@ -36,7 +36,11 @@ export interface ClaudeStructuredOpts {
 }
 
 export async function callClaudeStructured<T = unknown>(opts: ClaudeStructuredOpts): Promise<T> {
-  const { key, model, system, user, schema, maxTokens = 4096, effort = "low", timeoutMs = 60_000 } = opts;
+  const { key, model, system, user, schema, maxTokens = 4096, effort, timeoutMs = 60_000 } = opts;
+  // `effort` is model-dependent — Haiku 4.5 (our default) rejects it with a 400.
+  // Only include it when a caller explicitly opts in.
+  const outputConfig: Record<string, unknown> = { format: { type: "json_schema", schema } };
+  if (effort) outputConfig.effort = effort;
   let res: Response;
   try {
     res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -47,7 +51,7 @@ export async function callClaudeStructured<T = unknown>(opts: ClaudeStructuredOp
         max_tokens: maxTokens,
         system,
         messages: [{ role: "user", content: user }],
-        output_config: { format: { type: "json_schema", schema }, effort },
+        output_config: outputConfig,
       }),
       signal: AbortSignal.timeout(timeoutMs),
     });

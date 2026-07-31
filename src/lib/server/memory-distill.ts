@@ -67,9 +67,8 @@ async function callAnthropic(key: string, system: string, user: string): Promise
         max_tokens: 8192,
         system,
         messages: [{ role: "user", content: user }],
-        // Constrained JSON out; low effort — this is bounded synthesis, not a
-        // hard reasoning problem. (Adaptive thinking stays on by default.)
-        output_config: { format: { type: "json_schema", schema: DISTILL_SCHEMA }, effort: "low" },
+        // Constrained JSON out. No `effort` — Haiku 4.5 (our model) rejects it.
+        output_config: { format: { type: "json_schema", schema: DISTILL_SCHEMA } },
       }),
       signal: AbortSignal.timeout(60_000),
     });
