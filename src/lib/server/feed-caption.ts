@@ -15,6 +15,7 @@ import { getCredentialPlaintext } from "./credentials";
 import { callClaudeStructured, AnthropicError } from "./anthropic";
 import { getBrandVoice, buildVoiceCorpus } from "./brand-voice";
 import { buildVoiceBlock } from "./repurpose";
+import { resolveArticleUrl } from "./resolve-link";
 
 const MODEL = "claude-sonnet-5";
 const MAX_INPUT = 4_000; // clamp the headline+summary fed to the model
@@ -87,7 +88,7 @@ export type FeedCaptionResult =
   | { ok: false; reason: "no_item" }
   | { ok: false; reason: "no_source" }
   | { ok: false; reason: "api_error"; status: string }
-  | { ok: true; caption: string; overLimit: boolean; maxChars: number };
+  | { ok: true; caption: string; overLimit: boolean; maxChars: number; link: string | null };
 
 export async function generateFeedCaption(
   userId: string,
@@ -114,6 +115,10 @@ export async function generateFeedCaption(
 
   const [voice, corpus] = await Promise.all([getBrandVoice(userId), buildVoiceCorpus(userId, 5)]);
 
+  // Resolve a clean article link in parallel with generation. Best-effort:
+  // returns null (→ no link appended) on any failure, never a broken URL.
+  const linkPromise = resolveArticleUrl(item.link);
+
   let raw: { caption?: unknown };
   try {
     raw = await callClaudeStructured<{ caption?: unknown }>({
@@ -125,12 +130,16 @@ export async function generateFeedCaption(
       maxTokens: 1024,
     });
   } catch (err) {
+    void linkPromise.catch(() => {}); // don't leak an unhandled rejection
     return { ok: false, reason: "api_error", status: err instanceof AnthropicError ? err.status : "Generation failed" };
   }
 
-  const caption = typeof raw?.caption === "string" ? raw.caption.trim() : "";
-  if (!caption) return { ok: false, reason: "api_error", status: "No caption was generated" };
+  const body = typeof raw?.caption === "string" ? raw.caption.trim() : "";
+  if (!body) return { ok: false, reason: "api_error", status: "No caption was generated" };
 
-  await audit("feed.caption", { userId, metadata: { feedItemId, chars: caption.length } });
-  return { ok: true, caption, overLimit: caption.length > maxChars, maxChars };
+  const link = await linkPromise.catch(() => null);
+  const caption = link ? `${body}\n\n${link}` : body;
+
+  await audit("feed.caption", { userId, metadata: { feedItemId, chars: caption.length, resolvedLink: !!link } });
+  return { ok: true, caption, overLimit: caption.length > maxChars, maxChars, link };
 }

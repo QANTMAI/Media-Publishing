@@ -376,6 +376,26 @@ test("feed-draft: cleanLink strips tracking + drops Google News + over-long URLs
   assert.equal(FD.cleanLink("not a url"), null);
 });
 
+// ── Article link resolution (src/lib/server/resolve-link) ─────────────────
+const RL = await import("../src/lib/server/resolve-link");
+
+test("resolve-link: cleanUrl strips tracking + fragment, keeps real params, rejects non-http", () => {
+  assert.equal(
+    RL.cleanUrl("https://reuters.com/tech/story?utm_source=x&oc=5&hl=en&id=7#top"),
+    "https://reuters.com/tech/story?id=7",
+  );
+  assert.equal(RL.cleanUrl("https://a.com/x/?utm_campaign=y"), "https://a.com/x");
+  assert.equal(RL.cleanUrl("ftp://a.com/x"), null, "non-http rejected");
+  assert.equal(RL.cleanUrl("not a url"), null);
+  assert.equal(RL.cleanUrl(""), null);
+});
+
+test("resolve-link: isGoogleNews detects the redirect host only", () => {
+  assert.equal(RL.isGoogleNews("https://news.google.com/rss/articles/CBMi123"), true);
+  assert.equal(RL.isGoogleNews("https://reuters.com/x"), false);
+  assert.equal(RL.isGoogleNews("garbage"), false);
+});
+
 // ── AI caption from a trending item (src/lib/server/feed-caption) ──────────
 const FC = await import("../src/lib/server/feed-caption");
 
