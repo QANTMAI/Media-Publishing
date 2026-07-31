@@ -528,55 +528,43 @@ export default function ComposePage() {
             })}
           </div>
           <div style={{ padding: "14px 16px" }}>
-            <div style={{ fontSize: 13, color: "var(--color-neutral-700)", marginBottom: 10 }}>
-              <strong>{rules.name}</strong>&apos;s publishing rules — your base caption is validated against them
-              live. (Per-platform caption overrides ship with a later phase.)
-            </div>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: "7px 18px",
-                fontSize: 12.5,
-                marginBottom: 12,
-              }}
-            >
-              {[
-                ["Caption limit", `${rules.limit.toLocaleString()} chars`],
-                ["Hashtags", rules.tags],
-                ["Image", rules.img],
-                ["Video", rules.vid],
-              ].map(([label, val]) => (
-                <div key={label}>
-                  <span
-                    style={{
-                      color: "var(--color-neutral-600)",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.05em",
-                      fontSize: 10,
-                      display: "block",
-                    }}
-                  >
-                    {label}
-                  </span>
-                  {val}
-                </div>
-              ))}
-              <div style={{ gridColumn: "1/-1" }}>
-                <span
-                  style={{
-                    color: "var(--color-neutral-600)",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.05em",
-                    fontSize: 10,
-                    display: "block",
-                  }}
-                >
-                  Best aspect ratio
-                </span>
-                {rules.best}
+            {/* Collapsed by default — the live char counter below is the
+                always-on feedback; full rules are one click away. */}
+            <details style={{ fontSize: 12.5, marginBottom: 10 }}>
+              <summary
+                style={{ cursor: "pointer", fontSize: 12, color: "var(--color-neutral-600)", padding: "1px 0" }}
+              >
+                {rules.name} rules · {rules.limit.toLocaleString()} chars · {rules.img.split("·")[0].trim()}
+                {rules.vid.toLowerCase().includes("not") ? " · no video" : " · video ok"}
+              </summary>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 18px", margin: "10px 0 2px" }}>
+                {[
+                  ["Caption limit", `${rules.limit.toLocaleString()} chars`],
+                  ["Hashtags", rules.tags],
+                  ["Image", rules.img],
+                  ["Video", rules.vid],
+                  ["Best aspect ratio", rules.best],
+                ].map(([label, val]) => (
+                  <div key={label} style={label === "Best aspect ratio" ? { gridColumn: "1/-1" } : undefined}>
+                    <span
+                      style={{
+                        color: "var(--color-neutral-600)",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.05em",
+                        fontSize: 10,
+                        display: "block",
+                      }}
+                    >
+                      {label}
+                    </span>
+                    {val}
+                  </div>
+                ))}
               </div>
-            </div>
+              <p style={{ fontSize: 11.5, color: "var(--color-neutral-500)", margin: "6px 0 0" }}>
+                Base caption is validated live. Per-platform overrides ship later.
+              </p>
+            </details>
             <div
               style={{
                 display: "flex",
