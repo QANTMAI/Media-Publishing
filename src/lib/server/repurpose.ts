@@ -12,11 +12,11 @@
 import { db } from "./db";
 import { audit } from "./audit";
 import { getCredentialPlaintext } from "./credentials";
-import { callClaudeStructured, AnthropicError } from "./anthropic";
+import { callClaudeStructured, AnthropicError , AI_MODEL} from "./anthropic";
 import { getBrandVoice, buildVoiceCorpus, type BrandVoiceView } from "./brand-voice";
 import { PLATFORM_RULES } from "../platforms";
 
-const MODEL = "claude-sonnet-5"; // the roadmap's primary writing model
+const MODEL = AI_MODEL;
 const MAX_SOURCE = 12_000;
 
 export interface ChannelSpec {

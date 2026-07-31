@@ -12,12 +12,12 @@
 import { db } from "./db";
 import { audit } from "./audit";
 import { getCredentialPlaintext } from "./credentials";
-import { callClaudeStructured, AnthropicError } from "./anthropic";
+import { callClaudeStructured, AnthropicError , AI_MODEL} from "./anthropic";
 import { getBrandVoice, buildVoiceCorpus } from "./brand-voice";
 import { buildVoiceBlock } from "./repurpose";
 import { resolveArticleUrl } from "./resolve-link";
 
-const MODEL = "claude-sonnet-5";
+const MODEL = AI_MODEL;
 const MAX_INPUT = 4_000; // clamp the headline+summary fed to the model
 const DEFAULT_MAX_CHARS = 280; // tightest common limit when no platform is selected
 const MIN_MAX_CHARS = 80;

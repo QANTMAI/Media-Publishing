@@ -1,17 +1,17 @@
 /* Autopilot draft generation. ONE token-conservative Anthropic call produces a
  * small batch of original, brand-voice post ideas for the operator to review.
  * Runs only on an explicit Autopilot toggle (never on a timer), so token use is
- * bounded. Gated on the Anthropic key; returns null on no-key or any failure so
- * the caller falls back to plain (clearly-labeled) placeholder drafts — the
- * operator reviews/edits every draft before anything publishes. */
+ * bounded. Gated on the Anthropic key; returns null on no-key or any failure —
+ * the route then REFUSES to turn on (it never fabricates filler). The operator
+ * reviews/edits every draft before anything publishes. */
 
 import { db } from "./db";
 import { getCredentialPlaintext } from "./credentials";
-import { callClaudeStructured } from "./anthropic";
+import { callClaudeStructured , AI_MODEL} from "./anthropic";
 import { getBrandVoice, buildVoiceCorpus } from "./brand-voice";
 import { buildVoiceBlock } from "./repurpose";
 
-const MODEL = "claude-sonnet-5";
+const MODEL = AI_MODEL;
 const TIMES: Array<[number, number]> = [[9, 0], [12, 0], [15, 30], [18, 0], [19, 30]];
 
 export interface PlannedDraft {

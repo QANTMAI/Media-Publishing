@@ -17,6 +17,12 @@ interface MessagesResponse {
   stop_reason?: string;
 }
 
+/** The single model used by all AI features. Haiku 4.5 is the least expensive
+ * current Claude model ($1/$5 per 1M in/out) — pinned to the dated snapshot for
+ * reproducibility. Change it here to switch every AI feature at once. All
+ * outputs are human-reviewed drafts. */
+export const AI_MODEL = "claude-haiku-4-5-20251001";
+
 export interface ClaudeStructuredOpts {
   key: string;
   model: string;

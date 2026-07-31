@@ -16,6 +16,7 @@
 import { db } from "./db";
 import { audit } from "./audit";
 import { getCredentialPlaintext } from "./credentials";
+import { AI_MODEL } from "./anthropic";
 import { createMemory, getMemory, type MemoryView } from "./memory";
 import { projectEpisodic, projectEval } from "./memory-projections";
 import {
@@ -31,7 +32,7 @@ import {
 
 // Skill default. The operator brings their own key, so this runs on their
 // account; a structured, bounded synthesis at low effort keeps it cheap.
-const MODEL = "claude-opus-5";
+const MODEL = AI_MODEL;
 const EPISODIC_WINDOW = 40;
 
 export type DistillResult =

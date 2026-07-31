@@ -10,11 +10,11 @@
 import { db } from "./db";
 import { audit } from "./audit";
 import { getCredentialPlaintext } from "./credentials";
-import { callClaudeStructured, AnthropicError } from "./anthropic";
+import { callClaudeStructured, AnthropicError , AI_MODEL} from "./anthropic";
 
 // The roadmap's primary writing model — the fingerprint conditions all
 // downstream generation, so quality matters; it's a one-time cached call.
-const MODEL = "claude-sonnet-5";
+const MODEL = AI_MODEL;
 const CORPUS_LIMIT = 25;
 /** Below this many real posts, a fingerprint needs a filled guide to be honest. */
 export const MIN_CORPUS = 5;
