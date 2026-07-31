@@ -376,6 +376,36 @@ test("feed-draft: cleanLink strips tracking + drops Google News + over-long URLs
   assert.equal(FD.cleanLink("not a url"), null);
 });
 
+// ── Autopilot draft planning (src/lib/server/autopilot-plan) ──────────────
+const AP = await import("../src/lib/server/autopilot-plan");
+
+test("autopilot-plan: normalizeDrafts keeps captioned drafts and snaps unknown categories", () => {
+  const cats = ["Promo", "Educational"];
+  const out = AP.normalizeDrafts(
+    {
+      drafts: [
+        { caption: "hi", category: "Educational" },
+        { caption: "  ", category: "Promo" }, // dropped — blank caption
+        { caption: "bad cat", category: "Nonsense" }, // category snapped
+        { caption: "x", category: "" },
+      ],
+    },
+    cats,
+    5,
+  );
+  assert.equal(out.length, 3);
+  assert.deepEqual(out[0], { caption: "hi", category: "Educational" });
+  assert.equal(out[1].category, "Promo", "unknown/blank category snaps to the first");
+  assert.equal(AP.normalizeDrafts(null, cats, 5).length, 0, "junk → empty");
+});
+
+test("autopilot-plan: prompt carries the count, voice, and category list", () => {
+  const p = AP.buildAutopilotPrompt("Tone: bold", ["a past post"], ["Promo", "News"], 4);
+  assert.match(p, /Write 4 distinct/);
+  assert.match(p, /Tone: bold/);
+  assert.match(p, /Promo, News/);
+});
+
 // ── og:image extraction (src/lib/server/og-image) ─────────────────────────
 const OG = await import("../src/lib/server/og-image");
 

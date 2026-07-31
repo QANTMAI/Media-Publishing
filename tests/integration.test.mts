@@ -781,20 +781,11 @@ test("autopilot (auto mode) plans real scheduled posts and cleans up on off", as
   await api("/api/settings", { method: "PUT", body: JSON.stringify({ autopilotMode: "auto" }) });
   const on = await api("/api/autopilot", { method: "POST", body: JSON.stringify({ on: true }) });
   assert.equal(on.status, 200);
-  const { planned } = await on.json();
-  // The plan targets instagram/tiktok/linkedin/x/instagram but only CONNECTED
-  // platforms are used (no fallback piling onto one account) — so expected =
-  // plan items whose platform is currently connected.
-  const connectedPlatforms = new Set(
-    (await db.socialAccount.findMany({ where: { status: "connected" }, select: { platform: true } })).map(
-      (a) => a.platform,
-    ),
-  );
-  const expected = ["instagram", "tiktok", "linkedin", "x", "instagram"].filter((p) =>
-    connectedPlatforms.has(p),
-  ).length;
-  assert.equal(planned, expected, `planned ${planned}, expected ${expected} for connected platforms`);
-  assert.ok(planned >= 1, "at least one platform should be connected in the test env");
+  const { planned, ai } = await on.json();
+  // New behavior: a fixed batch is planned round-robin across whatever accounts
+  // are connected (no AI key in the test env → clearly-labeled fallback drafts).
+  assert.equal(ai, false, "no AI key → fallback path");
+  assert.equal(planned, 5, "plans a batch of 5 across the connected account(s)");
 
   const apPosts = await db.post.count({ where: { source: "autopilot" } });
   assert.ok(apPosts >= planned, "autopilot posts exist");
@@ -1877,4 +1868,22 @@ test("feed caption: auth-gated; honest no-op without an Anthropic key", async ()
 
 test("feed image suggestion is auth-gated", async () => {
   assert.equal((await fetch(`${BASE}/api/feeds/image`, { method: "POST", body: "{}" })).status, 401);
+});
+
+test("autopilot plans review drafts onto CONNECTED accounts (fallback path, no AI key)", async () => {
+  await api("/api/autopilot", { method: "POST", body: JSON.stringify({ on: false }) }); // reset idempotency
+  const res = await api("/api/autopilot", { method: "POST", body: JSON.stringify({ on: true }) });
+  assert.equal(res.status, 200);
+  const d = await res.json();
+  try {
+    assert.ok(d.planned > 0, "plans at least one draft onto a connected account");
+    assert.equal(d.ai, false, "no AI key in the test env → clearly-labeled fallback drafts");
+    const drafts = await db.post.findMany({ where: { source: "autopilot", status: "draft" }, include: { targets: true } });
+    assert.ok(drafts.length >= d.planned, "review drafts persisted");
+    for (const p of drafts) {
+      assert.ok(p.targets.length === 1 && p.targets[0].state === "draft", "each targets one connected account as a draft");
+    }
+  } finally {
+    await api("/api/autopilot", { method: "POST", body: JSON.stringify({ on: false }) }); // cleanup
+  }
 });

@@ -4,21 +4,26 @@ import { readSession } from "@/lib/server/session";
 import { autopilotMode, autopilotOn, setSetting } from "@/lib/server/settings";
 import { audit, requestIp } from "@/lib/server/audit";
 import { notify } from "@/lib/server/notifications";
+import { generateAutopilotDrafts, type PlannedDraft } from "@/lib/server/autopilot-plan";
 
-/* Autopilot (T-306 lite): ON plans a week of real scheduled posts across the
- * connected accounts — real Post/PostTarget/PublishJob rows, so the worker
- * publishes them like anything else. OFF removes the AI-planned posts that
- * haven't published yet. Caption generation is canned until the AI studio
- * (T-304) lands — labeled as such, not pretending to be a model. */
+/* Autopilot: ON plans a small batch across the operator's CONNECTED accounts —
+ * real Post/PostTarget rows (review drafts, or scheduled + jobs in auto mode).
+ * Captions are AI-generated in the operator's brand voice via one conservative
+ * Anthropic call; if no key (or the call fails) it falls back to plain, clearly-
+ * labeled placeholder drafts. Every draft is reviewed before publishing. OFF
+ * removes the AI-planned posts that haven't published yet. */
 
-/* Captions are prefixed "Draft ·", not "AI ·" — no model is involved until
- * the AI studio (T-304) ships, and the UI must not claim otherwise. */
-const PLAN: Array<{ dayOffset: number; time: [number, number]; platform: string; caption: string; category: string }> = [
-  { dayOffset: 1, time: [9, 0],  platform: "instagram", caption: "Draft · 5 styling tips for small spaces", category: "Educational" },
-  { dayOffset: 2, time: [19, 0], platform: "tiktok",    caption: "Draft · trending audio + our spin", category: "Trend" },
-  { dayOffset: 3, time: [8, 30], platform: "linkedin",  caption: "Draft · what a week of posting taught us", category: "Educational" },
-  { dayOffset: 4, time: [12, 0], platform: "x",         caption: "Draft · midweek drop reminder", category: "Promo" },
-  { dayOffset: 5, time: [18, 0], platform: "instagram", caption: "Draft · behind the scenes of this week", category: "Behind the scenes" },
+const BATCH = 5;
+const TIMES: Array<[number, number]> = [[9, 0], [12, 0], [15, 30], [18, 0], [19, 30]];
+
+// Used only when no AI key is configured (or generation fails). Plain evergreen
+// prompts the operator edits — labeled "Draft ·", never passed off as AI.
+const FALLBACK: string[] = [
+  "Draft · a quick win from this week worth sharing",
+  "Draft · one thing we learned recently",
+  "Draft · behind the scenes of what we're working on",
+  "Draft · a question for our community",
+  "Draft · a reminder of what we do and why it matters",
 ];
 
 export async function POST(req: Request) {
@@ -43,24 +48,37 @@ export async function POST(req: Request) {
     const connected = await db.socialAccount.findMany({
       where: { userId, status: "connected" },
     });
+    // Nothing to plan onto — turn on, but honestly plan zero (the UI explains).
+    if (connected.length === 0) {
+      await setSetting("autopilot", "on");
+      await audit("autopilot.on", { userId, ip: requestIp(req), metadata: { planned: 0, mode, reason: "no_connected_accounts" } });
+      return NextResponse.json({ autopilot: true, planned: 0, mode, reason: "no_connected_accounts" });
+    }
+
+    const categories = (await db.category.findMany({ where: { userId }, select: { name: true } })).map((c) => c.name);
+    const ai = await generateAutopilotDrafts(userId, BATCH, categories);
+    const drafts: PlannedDraft[] =
+      ai ??
+      FALLBACK.slice(0, BATCH).map((caption, i) => ({
+        caption,
+        category: categories[i % Math.max(1, categories.length)] ?? "Promo",
+      }));
+
     let created = 0;
-    for (const item of PLAN) {
-      // Only plan for platforms that are actually connected — piling the
-      // whole plan onto one unrelated account would be spam, not help.
-      const account = connected.find((a) => a.platform === item.platform);
-      if (!account) continue;
+    for (let i = 0; i < drafts.length; i++) {
+      // Round-robin across whatever's actually connected (incl. Bluesky).
+      const account = connected[i % connected.length];
       const when = new Date();
-      when.setDate(when.getDate() + item.dayOffset);
-      when.setHours(item.time[0], item.time[1], 0, 0);
+      when.setDate(when.getDate() + i + 1);
+      const [h, m] = TIMES[i % TIMES.length];
+      when.setHours(h, m, 0, 0);
       const post = await db.post.create({
         data: {
           userId,
-          baseCaption: item.caption,
-          category: item.category,
+          baseCaption: drafts[i].caption,
+          category: drafts[i].category,
           status: isReview ? "draft" : "scheduled",
           source: "autopilot",
-          // Review drafts keep their planned time (shown in the inbox / carried
-          // into the queue on approval) but get no job yet.
           targets: { create: [{ socialAccountId: account.id, scheduledAt: when, state: isReview ? "draft" : "scheduled" }] },
         },
         include: { targets: true },
@@ -71,7 +89,7 @@ export async function POST(req: Request) {
       created += 1;
     }
     await setSetting("autopilot", "on");
-    await audit("autopilot.on", { userId, ip: requestIp(req), metadata: { planned: created, mode } });
+    await audit("autopilot.on", { userId, ip: requestIp(req), metadata: { planned: created, mode, ai: !!ai } });
     // In review mode, drafts wait for approval — surface that as a notification.
     if (isReview && created > 0) {
       await notify(userId, {
@@ -82,7 +100,7 @@ export async function POST(req: Request) {
         metadata: { planned: created },
       });
     }
-    return NextResponse.json({ autopilot: true, planned: created, mode });
+    return NextResponse.json({ autopilot: true, planned: created, mode, ai: !!ai });
   }
 
   // OFF: remove AI-planned posts that haven't gone out (cascade deletes
