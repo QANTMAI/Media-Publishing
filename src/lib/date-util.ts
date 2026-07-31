@@ -18,3 +18,24 @@ export function toISO(y: number, m: number, d: number): string {
 export function daysInMonth(year: number, month0: number): number {
   return new Date(year, month0 + 1, 0).getDate();
 }
+
+/** "HH:MM" (24h) -> "H:MM AM/PM" (12h). Returns "" for malformed input. */
+export function format12h(hhmm: string | undefined): string {
+  if (!hhmm || !/^\d{2}:\d{2}$/.test(hhmm)) return "";
+  const [h, m] = hhmm.split(":").map(Number);
+  if (h > 23 || m > 59) return "";
+  const period = h < 12 ? "AM" : "PM";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, "0")} ${period}`;
+}
+
+/** Every "HH:MM" on a fixed minute step across a day (default 15-min). */
+export function timeOptions(stepMin = 15): string[] {
+  const out: string[] = [];
+  for (let h = 0; h < 24; h++) {
+    for (let m = 0; m < 60; m += stepMin) {
+      out.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
+    }
+  }
+  return out;
+}

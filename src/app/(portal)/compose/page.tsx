@@ -6,6 +6,7 @@ import { Check, ChevronDown, ExternalLink, Heart, MessageCircle, Plus, RefreshCw
 import { usePortal, selectableAccounts } from "@/lib/store";
 import { uploadAsset, type UploadedAsset } from "@/lib/upload";
 import { DatePicker } from "@/components/DatePicker";
+import { TimePicker } from "@/components/TimePicker";
 import {
   BRAND_HASHTAGS,
   COMPOSER_PLATFORMS,
@@ -591,15 +592,9 @@ export default function ComposePage() {
               <label htmlFor="date">Date</label>
               <DatePicker id="date" value={s.date} onChange={(v) => s.setComposer({ date: v })} />
             </div>
-            <div className="field" style={{ width: 110 }}>
+            <div className="field" style={{ width: 130 }}>
               <label htmlFor="time">Time</label>
-              <input
-                id="time"
-                className="input"
-                type="time"
-                value={s.time}
-                onChange={(e) => s.setComposer({ time: e.target.value })}
-              />
+              <TimePicker id="time" value={s.time} onChange={(v) => s.setComposer({ time: v })} />
             </div>
             <div className="field" style={{ width: 160 }}>
               <label htmlFor="tz">Time zone</label>

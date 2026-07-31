@@ -325,6 +325,24 @@ test("date-util: daysInMonth is leap-year aware", () => {
   assert.equal(DU.daysInMonth(2026, 3), 30, "Apr");
 });
 
+test("date-util: format12h converts 24h→12h with midnight/noon edges, rejects junk", () => {
+  assert.equal(DU.format12h("18:00"), "6:00 PM");
+  assert.equal(DU.format12h("00:00"), "12:00 AM", "midnight is 12 AM");
+  assert.equal(DU.format12h("12:00"), "12:00 PM", "noon is 12 PM");
+  assert.equal(DU.format12h("09:05"), "9:05 AM");
+  assert.equal(DU.format12h("23:45"), "11:45 PM");
+  assert.equal(DU.format12h("bad"), "");
+  assert.equal(DU.format12h("25:00"), "");
+});
+
+test("date-util: timeOptions spans the day on the given minute step", () => {
+  const opts = DU.timeOptions(15);
+  assert.equal(opts.length, 96, "24h × 4 quarters");
+  assert.equal(opts[0], "00:00");
+  assert.equal(opts[opts.length - 1], "23:45");
+  assert.equal(DU.timeOptions(30).length, 48);
+});
+
 // ── Repurpose (AI-2) — pure spec/prompt/validation ────────────────────────
 const RP = await import("../src/lib/server/repurpose");
 
