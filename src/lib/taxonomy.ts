@@ -186,7 +186,7 @@ export const AUDIT_ACTIONS = {
     "auth.logout",
     "auth.dev_login",
   ],
-  account: ["account.connect", "account.connect_failed", "account.disconnect", "account.pause", "account.resume", "account.remove"],
+  account: ["account.connect", "account.connect_failed", "account.disconnect", "account.pause", "account.resume", "account.remove", "account.oauth_config"],
   publish: ["publish.success", "publish.retry", "publish.failed", "publish.pause_all", "publish.resume_all"],
   post: ["post.schedule", "post.draft", "post.approve", "post.cancel", "post.discard", "post.edit", "post.reschedule", "post.repurpose"],
   autopilot: ["autopilot.on", "autopilot.off", "autopilot.mode"],

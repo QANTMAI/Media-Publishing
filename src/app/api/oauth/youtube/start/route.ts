@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { randomBytes } from "crypto";
 import { readSession } from "@/lib/server/session";
-import { youtubeAuthUrl, youtubeConfigured } from "@/lib/server/youtube";
+import { youtubeAuthUrl } from "@/lib/server/youtube";
+import { resolveOAuth, oauthRedirectUri } from "@/lib/server/oauth-config";
 
 /** GET /api/oauth/youtube/start — kick off the Google/YouTube OAuth grant.
  * Same CSRF pattern as Meta/LinkedIn: a state nonce is double-submitted
@@ -22,7 +23,11 @@ export async function GET(req: Request) {
 
   // Real OAuth when configured; mock ONLY under the explicit OAUTH_MOCK=1 dev
   // flag. In live mode an unconfigured platform refuses honestly (no fake row).
-  if (youtubeConfigured()) return NextResponse.redirect(youtubeAuthUrl(state));
+  const creds = await resolveOAuth(userId, "youtube");
+  if (creds) {
+    const redirectUri = oauthRedirectUri(new URL(req.url).origin, "youtube");
+    return NextResponse.redirect(youtubeAuthUrl(state, { clientId: creds.clientId, redirectUri }));
+  }
   if (process.env.OAUTH_MOCK === "1") {
     return NextResponse.redirect(new URL(`/api/oauth/youtube/callback?mock=1&state=${state}`, req.url));
   }

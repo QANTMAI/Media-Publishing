@@ -39,11 +39,11 @@ export function linkedinConfigured(): boolean {
   return !!(process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET && process.env.LINKEDIN_REDIRECT_URI);
 }
 
-export function linkedinAuthUrl(state: string): string {
+export function linkedinAuthUrl(state: string, cfg?: { clientId: string; redirectUri: string }): string {
   const p = new URLSearchParams({
     response_type: "code",
-    client_id: process.env.LINKEDIN_CLIENT_ID!,
-    redirect_uri: process.env.LINKEDIN_REDIRECT_URI!,
+    client_id: cfg?.clientId ?? process.env.LINKEDIN_CLIENT_ID!,
+    redirect_uri: cfg?.redirectUri ?? process.env.LINKEDIN_REDIRECT_URI!,
     state,
     scope: LINKEDIN_SCOPES,
   });
@@ -58,16 +58,19 @@ export interface LinkedInToken {
 
 /** Exchange the authorization code (30-minute lifespan) for an access token.
  * Per docs: form-encoded POST; token ~500 chars (plan for 1000+). */
-export async function linkedinExchangeCode(code: string): Promise<LinkedInToken> {
+export async function linkedinExchangeCode(
+  code: string,
+  cfg?: { clientId: string; clientSecret: string; redirectUri: string },
+): Promise<LinkedInToken> {
   const res = await fetch(`${AUTH_BASE}/accessToken`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       grant_type: "authorization_code",
       code,
-      client_id: process.env.LINKEDIN_CLIENT_ID!,
-      client_secret: process.env.LINKEDIN_CLIENT_SECRET!,
-      redirect_uri: process.env.LINKEDIN_REDIRECT_URI!,
+      client_id: cfg?.clientId ?? process.env.LINKEDIN_CLIENT_ID!,
+      client_secret: cfg?.clientSecret ?? process.env.LINKEDIN_CLIENT_SECRET!,
+      redirect_uri: cfg?.redirectUri ?? process.env.LINKEDIN_REDIRECT_URI!,
     }),
     signal: AbortSignal.timeout(30_000),
   });

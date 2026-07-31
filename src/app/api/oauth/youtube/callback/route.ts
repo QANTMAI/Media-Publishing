@@ -5,6 +5,7 @@ import { readSession } from "@/lib/server/session";
 import { deleteSecret, storeSecret } from "@/lib/server/vault";
 import { audit, requestIp } from "@/lib/server/audit";
 import { YOUTUBE_SCOPES, youtubeChannel, youtubeExchangeCode } from "@/lib/server/youtube";
+import { resolveOAuth, oauthRedirectUri } from "@/lib/server/oauth-config";
 
 /** GET /api/oauth/youtube/callback — finish the grant: verify state, exchange
  * the code, resolve the channel identity, store the REFRESH token in the vault
@@ -47,7 +48,9 @@ export async function GET(req: Request) {
     } else {
       const code = url.searchParams.get("code");
       if (!code) return fail("Missing authorization code");
-      const token = await youtubeExchangeCode(code);
+      const c = await resolveOAuth(userId, "youtube");
+      const cfg = c ? { ...c, redirectUri: oauthRedirectUri(new URL(req.url).origin, "youtube") } : undefined;
+      const token = await youtubeExchangeCode(code, cfg);
       if (!token.refreshToken) {
         // No refresh token = the account can't publish past the 1h access-token
         // window. Almost always a prior grant re-authorized without consent.

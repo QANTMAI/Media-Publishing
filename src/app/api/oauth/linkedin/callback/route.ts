@@ -5,6 +5,7 @@ import { readSession } from "@/lib/server/session";
 import { deleteSecret, storeSecret } from "@/lib/server/vault";
 import { audit, requestIp } from "@/lib/server/audit";
 import { LINKEDIN_SCOPES, linkedinExchangeCode, linkedinUserinfo } from "@/lib/server/linkedin";
+import { resolveOAuth, oauthRedirectUri } from "@/lib/server/oauth-config";
 
 /** GET /api/oauth/linkedin/callback — finish the grant: verify state,
  * exchange the code, resolve the member via OpenID userinfo, store the token
@@ -48,7 +49,9 @@ export async function GET(req: Request) {
     } else {
       const code = url.searchParams.get("code");
       if (!code) return fail("Missing authorization code");
-      const token = await linkedinExchangeCode(code);
+      const c = await resolveOAuth(userId, "linkedin");
+      const cfg = c ? { ...c, redirectUri: oauthRedirectUri(new URL(req.url).origin, "linkedin") } : undefined;
+      const token = await linkedinExchangeCode(code, cfg);
       const member = await linkedinUserinfo(token.accessToken);
       externalId = member.sub;
       handle = member.name;

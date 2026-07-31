@@ -495,6 +495,18 @@ test("feed-caption: SYSTEM prompt defends against prompt injection in the feed t
   assert.match(FC.FEED_CAPTION_SYSTEM, /system prompt/i);
 });
 
+// ── In-app OAuth app config (src/lib/server/oauth-config) ─────────────────
+const OC = await import("../src/lib/server/oauth-config");
+
+test("oauth-config: platform guard, derived redirect URI, and encoded guides", () => {
+  assert.ok(OC.isOAuthPlatform("meta") && OC.isOAuthPlatform("linkedin") && OC.isOAuthPlatform("youtube"));
+  assert.ok(!OC.isOAuthPlatform("bluesky") && !OC.isOAuthPlatform("nope"));
+  assert.equal(OC.oauthRedirectUri("https://x.app", "youtube"), "https://x.app/api/oauth/youtube/callback");
+  assert.equal(OC.oauthRedirectUri("https://x.app/", "linkedin"), "https://x.app/api/oauth/linkedin/callback");
+  assert.ok(OC.OAUTH_GUIDE.meta.steps.length > 0 && OC.OAUTH_GUIDE.meta.console.includes("developers.facebook"));
+  assert.ok(OC.OAUTH_GUIDE.youtube.console.includes("console.cloud.google"));
+});
+
 // ── Trending hashtags from feed titles (src/lib/trending-tags) ────────────
 const TT = await import("../src/lib/trending-tags");
 

@@ -5,37 +5,44 @@ social content across ten platforms — Instagram, Facebook, X, LinkedIn,
 YouTube, TikTok, Threads, Bluesky, Pinterest, and Google Business — from one
 calendar.
 
-Built security-first: mandatory TOTP two-factor auth, an AES-256-GCM encrypted
+Built security-first: optional TOTP two-factor auth, an AES-256-GCM encrypted
 credential vault, a durable publish queue with retries, and a full audit log.
 
 ## Features
 
 - **Compose once, publish everywhere** — one base caption, per-platform
-  overrides, live per-platform validation (character limits, media rules),
-  and a live post preview.
-- **Multiple accounts per platform** — connect any number of profiles per
-  network; every post targets specific accounts, not just "the platform".
-- **Visual calendar** — Month / Week / List views (FullCalendar, MIT),
-  drag-to-reschedule, color lenses by category, platform, or status.
-- **Reliable auto-publishing** — a durable job queue publishes at the
-  scheduled time with exponential-backoff retries; failures surface with the
+  overrides, live validation against the tightest selected platform's limit,
+  and a live post preview. Clip-proof custom date/time pickers.
+- **AI writing (bring-your-own Anthropic key)** — all AI runs on your key,
+  draft-only (human-reviewed), on the cheapest model (`claude-haiku-4-5`):
+  - **Write with AI** rewrites your rough draft in your brand voice.
+  - **AI draft** turns a trending news item into a source-grounded caption.
+  - **Repurpose** adapts one piece of content into per-channel captions.
+  - **Autopilot** plans a batch of original, on-brand drafts for review.
+  - A **brand-voice** guide + fingerprint conditions all of the above.
+  All AI ingests untrusted text as data (prompt-injection guarded) and never
+  auto-publishes.
+- **Reliable auto-publishing** — a durable job queue publishes at the scheduled
+  time with exponential-backoff retries + jitter; failures surface the
   platform's actual error. A kill switch pauses everything instantly.
-- **Autopilot** — plans a week of posts across connected accounts; a delivery
-  mode (hold-for-review vs auto-schedule) routes drafts to the review inbox or
-  straight to the calendar. Turning it off cleanly removes unpublished plans.
-- **Real platform integrations** — Meta (Instagram + Facebook) and LinkedIn
-  OAuth + publishing are built against the platforms' current APIs; every
-  other platform runs in clearly-labeled mock mode until its app is configured.
-- **Settings** — Autopilot mode, editable content categories (create / rename /
-  recolor / delete), encrypted API-key vault (Anthropic), RSS **trend sources**,
-  and per-event notification preferences.
-- **Notifications** — an in-app bell driven by real events (publish failures,
-  review-ready drafts), with an optional email mirror.
+- **Real platform integrations** — Bluesky publishes for real today (app
+  password; no developer app). Meta (Instagram + Facebook), LinkedIn, and
+  YouTube connect via real OAuth **once their app credentials are configured**;
+  until then they honestly show "Needs setup" — no fake connections. (A mock
+  path exists only under the explicit `OAUTH_MOCK=1` dev flag.)
+- **Visual calendar** — Month / Week / List (FullCalendar, MIT),
+  drag-to-reschedule, color lenses by category, platform, or status.
 - **Trending & breaking** — the composer surfaces items from your own RSS/Atom
-  feeds; "Draft a post" seeds the composer from an item.
+  feeds. Per item: **Draft a post** (clean headline + a resolved article link),
+  **AI draft**, and **Image** (suggests the story's `og:image`, attach only on
+  your click — rights are yours). Hashtag suggestions are derived from your
+  actual feed titles.
 - **Dashboard** — weekly goal tracking and honest metrics: real numbers where a
   platform is connected, an explicit "connect analytics" state otherwise (never
-  fabricated).
+  fabricated). Review inbox for Autopilot/Repurpose drafts.
+- **Settings** — Autopilot mode, editable categories, the encrypted Anthropic
+  key vault, RSS trend sources, and per-event notification preferences.
+- **Notifications** — an in-app bell driven by real events, with optional email.
 
 ## Quick start
 
@@ -45,14 +52,16 @@ npx prisma migrate dev   # creates the local SQLite database
 npm run dev              # http://localhost:3000
 ```
 
-First run opens **/setup**: create the operator account, scan the TOTP QR
-with an authenticator app, and confirm a code. Sign-in from then on is
-email + password + TOTP.
+First run opens **/setup**: create the operator account. Two-factor is
+**optional** — enable it to enroll a TOTP authenticator, or leave it off for
+email + password sign-in.
 
-Copy `.env.example` to `.env` and fill in the secrets (32-byte base64 values
-for `SESSION_SECRET` and `VAULT_MASTER_KEY`, e.g. `openssl rand -base64 32`).
-With no Meta app credentials configured, OAuth connects run in a clearly
-labeled mock mode so the whole pipeline works before platform app review.
+Copy `.env.example` to `.env` and fill the secrets (32-byte base64 for
+`SESSION_SECRET`, `VAULT_MASTER_KEY`, `STORAGE_SIGNING_KEY`, e.g.
+`openssl rand -base64 32`). AI features need an Anthropic key added in-app
+(Settings → Integrations & keys). Real OAuth publishing needs each platform's
+app credentials (`META_*`, `LINKEDIN_*`, `YOUTUBE_*`) — see
+[docs/REAL-PUBLISHING-SETUP.md](docs/REAL-PUBLISHING-SETUP.md).
 
 ## Scripts
 
@@ -60,44 +69,46 @@ labeled mock mode so the whole pipeline works before platform app review.
 |---|---|
 | `npm run dev` | Dev server (also boots the publish worker) |
 | `npm run build` / `npm start` | Production build / serve |
-| `npm test` | Full test suite (unit + integration; dev server must be running) |
+| `npm test` | Full suite (unit + integration; isolated server + test DB) |
 | `npm run test:unit` | Unit tests only |
+| `npm run db:backup` | Online SQLite backup (`VACUUM INTO`) |
 
 ## Stack
 
 Next.js 15 (App Router) · TypeScript · Prisma + SQLite (WAL; Litestream backups
-in prod) · zustand · FullCalendar · jose · otplib · bcryptjs
+in prod) · zustand · FullCalendar · jose · otplib · bcryptjs · Anthropic
+(BYO-key, `claude-haiku-4-5`).
+
+## Deployment
+
+A `Dockerfile` + GitHub Actions publish a container image to GHCR (on `v*`
+tags / manual dispatch), and `render.yaml` deploys it to Render with a
+persistent disk. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Documentation
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — system design: data model,
-  publish queue, credential vault, auth flow.
-- [docs/DATA-MAP.md](docs/DATA-MAP.md) — the taxonomy & legend, data sources,
-  signal-ingestion paths, the audit-action registry, and the system rules.
-- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — environment, database,
-  testing, recovery/backups, and platform-integration notes.
-- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — production checklist: secrets, the
-  SQLite + WAL + Litestream setup, config guard, health probe, security.
-- [docs/PLATFORM-RULES.md](docs/PLATFORM-RULES.md) — every platform limit,
-  its verification status, and the single-source-of-truth rule.
-- [docs/SECURITY.md](docs/SECURITY.md) — dependency-advisory triage and any
-  documented accepted risks.
-- [docs/VIDEO.md](docs/VIDEO.md) — researched video specs and the encode plan.
+  publish queue, credential vault, auth, AI seam.
+- [docs/DATA-MAP.md](docs/DATA-MAP.md) — taxonomy, data sources, API surface,
+  the audit-action registry, and system rules.
+- [docs/REAL-PUBLISHING-SETUP.md](docs/REAL-PUBLISHING-SETUP.md) — per-platform
+  credentials to publish for real.
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) · [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+  · [docs/PLATFORM-RULES.md](docs/PLATFORM-RULES.md) ·
+  [docs/SECURITY.md](docs/SECURITY.md) · [docs/VIDEO.md](docs/VIDEO.md)
 
 ## Status
 
-Implemented and tested (run `npm test`): all UI screens; real auth (mandatory
-TOTP); the encrypted vault; **Meta and LinkedIn** OAuth connect + publishing
-(with labeled mock mode when an app isn't configured); the scheduling/publish
-queue with retries, kill switch, and account removal; the media pipeline
-(private signed-URL storage, uploads, image variants, ffmpeg video transcode,
-IG container + Reels); the Meta insights collector (real-response-only metric
-snapshots); Settings (autopilot mode, categories, encrypted keys, RSS trend
-sources, notification prefs); the notification system; the RSS trending feed;
-and production hardening (boot config guard, SQLite WAL + Litestream, `/api/health`).
+Live and tested (`npm test`, 137 passing): all UI screens; optional-TOTP auth +
+encrypted vault; **Bluesky real publishing** (verified end-to-end); the
+scheduling/publish queue with retries, kill switch, and account removal; the AI
+suite (Write-with-AI, AI draft, Repurpose, Autopilot, brand voice, memory
+distill — all BYO-key, draft-only, injection-guarded); trending feeds with
+link resolution + `og:image` suggestion + feed-derived hashtags; the media
+pipeline (signed-URL storage, image variants, ffmpeg transcode, IG container +
+Reels); Settings; notifications; and production hardening (boot config guard,
+SQLite WAL + Litestream, `/api/health`, container image + Render blueprint).
 
-Remaining platform integrations (X, YouTube, TikTok, Threads, Bluesky,
-Pinterest, Google Business), auto-captions, and the AI studio are on the
-roadmap — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#whats-next). The
-system's controlled vocabularies and data map are in
-[docs/DATA-MAP.md](docs/DATA-MAP.md).
+Meta / LinkedIn / YouTube OAuth is built and connects for real once app
+credentials are configured (they show "Needs setup" until then). X, TikTok,
+Threads, Pinterest, and Google Business publishing are future integration waves.

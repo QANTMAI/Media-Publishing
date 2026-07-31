@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { randomBytes } from "crypto";
 import { readSession } from "@/lib/server/session";
-import { linkedinAuthUrl, linkedinConfigured } from "@/lib/server/linkedin";
+import { linkedinAuthUrl } from "@/lib/server/linkedin";
+import { resolveOAuth, oauthRedirectUri } from "@/lib/server/oauth-config";
 
 /** GET /api/oauth/linkedin/start — kick off the LinkedIn OAuth grant.
  * Same CSRF pattern as Meta: the state nonce is double-submitted
@@ -22,7 +23,11 @@ export async function GET(req: Request) {
 
   // Real OAuth when configured; mock ONLY under the explicit OAUTH_MOCK=1 dev
   // flag. In live mode an unconfigured platform refuses honestly (no fake row).
-  if (linkedinConfigured()) return NextResponse.redirect(linkedinAuthUrl(state));
+  const creds = await resolveOAuth(userId, "linkedin");
+  if (creds) {
+    const redirectUri = oauthRedirectUri(new URL(req.url).origin, "linkedin");
+    return NextResponse.redirect(linkedinAuthUrl(state, { clientId: creds.clientId, redirectUri }));
+  }
   if (process.env.OAUTH_MOCK === "1") {
     return NextResponse.redirect(new URL(`/api/oauth/linkedin/callback?mock=1&state=${state}`, req.url));
   }

@@ -5,6 +5,7 @@ import { readSession } from "@/lib/server/session";
 import { deleteSecret, storeSecret } from "@/lib/server/vault";
 import { audit, requestIp } from "@/lib/server/audit";
 import { discoverAccounts, exchangeCode, META_SCOPES, type DiscoveredAccount } from "@/lib/server/meta";
+import { resolveOAuth, oauthRedirectUri } from "@/lib/server/oauth-config";
 
 // Mock grants target the seeded demo rows (same external ids) so connecting
 // "activates" them instead of duplicating handles in the account list.
@@ -48,7 +49,9 @@ export async function GET(req: Request) {
     } else {
       const code = url.searchParams.get("code");
       if (!code) return fail("Missing authorization code");
-      const { token, expiresIn } = await exchangeCode(code);
+      const c = await resolveOAuth(userId, "meta");
+      const cfg = c ? { ...c, redirectUri: oauthRedirectUri(new URL(req.url).origin, "meta") } : undefined;
+      const { token, expiresIn } = await exchangeCode(code, cfg);
       expiresAt = new Date(Date.now() + expiresIn * 1000);
       discovered = await discoverAccounts(token);
       if (!discovered.length) return fail("No Pages or Instagram business accounts on this profile");

@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { randomBytes } from "crypto";
 import { readSession } from "@/lib/server/session";
-import { metaAuthUrl, metaConfigured } from "@/lib/server/meta";
+import { metaAuthUrl } from "@/lib/server/meta";
+import { resolveOAuth, oauthRedirectUri } from "@/lib/server/oauth-config";
 
 /** GET /api/oauth/meta/start — kick off the Meta OAuth grant. The state nonce
  * is double-submitted (cookie + query) to block CSRF on the callback. */
@@ -19,10 +20,14 @@ export async function GET(req: Request) {
     maxAge: 600,
   });
 
-  // Real OAuth when the app is configured. The mock path is ONLY for the
-  // explicit OAUTH_MOCK=1 dev flag; in live mode an unconfigured platform
-  // refuses honestly instead of creating a fake account.
-  if (metaConfigured()) return NextResponse.redirect(metaAuthUrl(state));
+  // Real OAuth when the app is configured (env or the in-app vault). The mock
+  // path is ONLY for the explicit OAUTH_MOCK=1 dev flag; otherwise an
+  // unconfigured platform refuses honestly instead of creating a fake account.
+  const creds = await resolveOAuth(userId, "meta");
+  if (creds) {
+    const redirectUri = oauthRedirectUri(new URL(req.url).origin, "meta");
+    return NextResponse.redirect(metaAuthUrl(state, { clientId: creds.clientId, redirectUri }));
+  }
   if (process.env.OAUTH_MOCK === "1") {
     return NextResponse.redirect(new URL(`/api/oauth/meta/callback?mock=1&state=${state}`, req.url));
   }

@@ -18,6 +18,7 @@ import { validateVideoForPlatform } from "../video-specs";
 import { publishLinkedInPost } from "./linkedin";
 import { publishBluesky, BLUESKY_MAX_IMAGES, BLUESKY_BLOB_MAX_BYTES, type BlueskyImage } from "./bluesky";
 import { publishYouTubeVideo, youtubeRefreshAccess } from "./youtube";
+import { resolveOAuth } from "./oauth-config";
 import { PermanentError, type PublishResult } from "./publisher-errors";
 
 // Re-export the shared contracts — the worker and tests import them from here.
@@ -90,7 +91,8 @@ export async function publishTarget(postTargetId: string): Promise<PublishResult
       // YouTube is video-only. `token` is the stored refresh token — mint a
       // fresh access token, then resumable-upload the source video.
       const bytes = await loadYouTubeVideo(target.assetIds, account.platform);
-      const { accessToken } = await youtubeRefreshAccess(token);
+      const ytCfg = await resolveOAuth(account.userId, "youtube");
+      const { accessToken } = await youtubeRefreshAccess(token, ytCfg ?? undefined);
       return publishYouTubeVideo(accessToken, caption, bytes, "video/*");
     }
     case "instagram": {

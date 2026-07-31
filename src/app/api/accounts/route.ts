@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/server/db";
 import { readSession } from "@/lib/server/session";
-import { metaConfigured } from "@/lib/server/meta";
-import { linkedinConfigured } from "@/lib/server/linkedin";
-import { youtubeConfigured } from "@/lib/server/youtube";
+import { oauthConfiguredFor } from "@/lib/server/oauth-config";
 
 /** GET /api/accounts — the operator's connected-account rows. Tokens never
  * appear here; only status/metadata. */
@@ -36,9 +34,9 @@ export async function GET() {
   // to show "Needs setup" instead of letting a Connect create a mock. Bluesky
   // needs no app (app password), so it's always connectable.
   const configured = {
-    meta: metaConfigured(),
-    linkedin: linkedinConfigured(),
-    youtube: youtubeConfigured(),
+    meta: await oauthConfiguredFor(userId, "meta"),
+    linkedin: await oauthConfiguredFor(userId, "linkedin"),
+    youtube: await oauthConfiguredFor(userId, "youtube"),
     bluesky: true,
   };
   return NextResponse.json({ accounts, configured });

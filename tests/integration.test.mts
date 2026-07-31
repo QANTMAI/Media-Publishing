@@ -1873,3 +1873,23 @@ test("compose 'Write with AI' is auth-gated with an honest no-key no-op", async 
   assert.equal(d.ok, false);
   assert.equal(d.reason, "no_anthropic_key");
 });
+
+test("in-app OAuth setup: auth-gated; saving Client ID/Secret enables the platform", async () => {
+  assert.equal((await fetch(`${BASE}/api/oauth/config?platform=meta`)).status, 401);
+  const g = await api("/api/oauth/config?platform=youtube");
+  assert.equal(g.status, 200);
+  const gd = await g.json();
+  assert.ok(gd.guide.steps.length > 0 && gd.redirectUri.endsWith("/api/oauth/youtube/callback"));
+  const bad = await api("/api/oauth/config", { method: "POST", body: JSON.stringify({ platform: "youtube", clientId: "", clientSecret: "" }) });
+  assert.equal(bad.status, 422, "both fields required");
+  try {
+    const ok = await api("/api/oauth/config", { method: "POST", body: JSON.stringify({ platform: "youtube", clientId: "test-id", clientSecret: "test-secret" }) });
+    assert.equal(ok.status, 200);
+    const acc = await (await api("/api/accounts")).json();
+    assert.equal(acc.configured.youtube, true, "stored creds → platform configured (Connect enabled)");
+  } finally {
+    await api("/api/oauth/config?platform=youtube", { method: "DELETE" });
+    const acc2 = await (await api("/api/accounts")).json();
+    assert.equal(acc2.configured.youtube, false, "removed → not configured");
+  }
+});

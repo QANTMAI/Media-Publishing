@@ -28,10 +28,10 @@ export function mockMode(): boolean {
   return process.env.OAUTH_MOCK === "1" || !metaConfigured();
 }
 
-export function metaAuthUrl(state: string): string {
+export function metaAuthUrl(state: string, cfg?: { clientId: string; redirectUri: string }): string {
   const p = new URLSearchParams({
-    client_id: process.env.META_APP_ID!,
-    redirect_uri: process.env.META_REDIRECT_URI!,
+    client_id: cfg?.clientId ?? process.env.META_APP_ID!,
+    redirect_uri: cfg?.redirectUri ?? process.env.META_REDIRECT_URI!,
     scope: META_SCOPES,
     response_type: "code",
     state,
@@ -53,17 +53,23 @@ async function graphGet<T>(path: string, params: Record<string, string>): Promis
 }
 
 /** code → short-lived token → long-lived token (~60 days). */
-export async function exchangeCode(code: string): Promise<{ token: string; expiresIn: number }> {
+export async function exchangeCode(
+  code: string,
+  cfg?: { clientId: string; clientSecret: string; redirectUri: string },
+): Promise<{ token: string; expiresIn: number }> {
+  const clientId = cfg?.clientId ?? process.env.META_APP_ID!;
+  const clientSecret = cfg?.clientSecret ?? process.env.META_APP_SECRET!;
+  const redirectUri = cfg?.redirectUri ?? process.env.META_REDIRECT_URI!;
   const shortTok = await graphGet<{ access_token: string }>("/oauth/access_token", {
-    client_id: process.env.META_APP_ID!,
-    client_secret: process.env.META_APP_SECRET!,
-    redirect_uri: process.env.META_REDIRECT_URI!,
+    client_id: clientId,
+    client_secret: clientSecret,
+    redirect_uri: redirectUri,
     code,
   });
   const longTok = await graphGet<{ access_token: string; expires_in?: number }>("/oauth/access_token", {
     grant_type: "fb_exchange_token",
-    client_id: process.env.META_APP_ID!,
-    client_secret: process.env.META_APP_SECRET!,
+    client_id: clientId,
+    client_secret: clientSecret,
     fb_exchange_token: shortTok.access_token,
   });
   return { token: longTok.access_token, expiresIn: longTok.expires_in ?? 60 * 60 * 24 * 60 };

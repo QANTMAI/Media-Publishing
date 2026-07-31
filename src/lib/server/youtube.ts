@@ -46,10 +46,10 @@ export function youtubeConfigured(): boolean {
   return !!(process.env.YOUTUBE_CLIENT_ID && process.env.YOUTUBE_CLIENT_SECRET && process.env.YOUTUBE_REDIRECT_URI);
 }
 
-export function youtubeAuthUrl(state: string): string {
+export function youtubeAuthUrl(state: string, cfg?: { clientId: string; redirectUri: string }): string {
   const p = new URLSearchParams({
-    client_id: process.env.YOUTUBE_CLIENT_ID!,
-    redirect_uri: process.env.YOUTUBE_REDIRECT_URI!,
+    client_id: cfg?.clientId ?? process.env.YOUTUBE_CLIENT_ID!,
+    redirect_uri: cfg?.redirectUri ?? process.env.YOUTUBE_REDIRECT_URI!,
     response_type: "code",
     scope: YOUTUBE_SCOPES,
     access_type: "offline", // required for a refresh_token
@@ -69,15 +69,18 @@ export interface YouTubeToken {
 /** Exchange the authorization code for tokens. With prompt=consent a
  * refresh_token is reliably returned; the callback treats its absence as a
  * hard error (the account would be unusable after the access token expires). */
-export async function youtubeExchangeCode(code: string): Promise<YouTubeToken> {
+export async function youtubeExchangeCode(
+  code: string,
+  cfg?: { clientId: string; clientSecret: string; redirectUri: string },
+): Promise<YouTubeToken> {
   const res = await fetch(TOKEN_ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       code,
-      client_id: process.env.YOUTUBE_CLIENT_ID!,
-      client_secret: process.env.YOUTUBE_CLIENT_SECRET!,
-      redirect_uri: process.env.YOUTUBE_REDIRECT_URI!,
+      client_id: cfg?.clientId ?? process.env.YOUTUBE_CLIENT_ID!,
+      client_secret: cfg?.clientSecret ?? process.env.YOUTUBE_CLIENT_SECRET!,
+      redirect_uri: cfg?.redirectUri ?? process.env.YOUTUBE_REDIRECT_URI!,
       grant_type: "authorization_code",
     }),
     signal: AbortSignal.timeout(30_000),
@@ -98,13 +101,16 @@ export async function youtubeExchangeCode(code: string): Promise<YouTubeToken> {
 /** Mint a fresh access token from the stored refresh token. A revoked or
  * expired refresh token (invalid_grant) is permanent — the operator must
  * reconnect. */
-export async function youtubeRefreshAccess(refreshToken: string): Promise<{ accessToken: string; expiresIn: number }> {
+export async function youtubeRefreshAccess(
+  refreshToken: string,
+  cfg?: { clientId: string; clientSecret: string },
+): Promise<{ accessToken: string; expiresIn: number }> {
   const res = await fetch(TOKEN_ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      client_id: process.env.YOUTUBE_CLIENT_ID!,
-      client_secret: process.env.YOUTUBE_CLIENT_SECRET!,
+      client_id: cfg?.clientId ?? process.env.YOUTUBE_CLIENT_ID!,
+      client_secret: cfg?.clientSecret ?? process.env.YOUTUBE_CLIENT_SECRET!,
       refresh_token: refreshToken,
       grant_type: "refresh_token",
     }),

@@ -105,6 +105,50 @@ export default function AccountsPage() {
   const [bsBusy, setBsBusy] = useState(false);
   const [bsError, setBsError] = useState("");
   const [configured, setConfigured] = useState<Record<string, boolean>>({});
+  const [setup, setSetup] = useState<
+    { platform: string; name: string; console: string; steps: string[]; note?: string; redirectUri: string } | null
+  >(null);
+  const [setupId, setSetupId] = useState("");
+  const [setupSecret, setSetupSecret] = useState("");
+  const [setupBusy, setSetupBusy] = useState(false);
+  const [setupErr, setSetupErr] = useState("");
+
+  const openSetup = async (platform: string, name: string) => {
+    setSetupErr("");
+    setSetupId("");
+    setSetupSecret("");
+    const res = await fetch(`/api/oauth/config?platform=${platform}`);
+    if (!res.ok) return notify("Couldn't open setup");
+    const d = await res.json();
+    setSetup({ platform, name, console: d.guide.console, steps: d.guide.steps, note: d.guide.note, redirectUri: d.redirectUri });
+  };
+
+  const saveSetup = async () => {
+    if (!setup) return;
+    if (!setupId.trim() || !setupSecret.trim()) return setSetupErr("Enter both the Client ID and Client Secret");
+    setSetupBusy(true);
+    setSetupErr("");
+    let res: Response;
+    try {
+      res = await fetch("/api/oauth/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: setup.platform, clientId: setupId, clientSecret: setupSecret }),
+      });
+    } catch {
+      setSetupBusy(false);
+      return setSetupErr("Couldn't reach the server");
+    }
+    setSetupBusy(false);
+    if (res.ok) {
+      const name = setup.name;
+      setSetup(null);
+      notify(`${name} configured — you can Connect now`);
+      refresh();
+    } else {
+      setSetupErr((await res.json().catch(() => ({}))).error ?? "Save failed");
+    }
+  };
 
   const refresh = async () => {
     const res = await fetch("/api/accounts");
@@ -346,10 +390,10 @@ export default function AccountsPage() {
               ) : (
                 <button
                   className="btn btn-secondary"
-                  disabled
-                  title="Add this platform's OAuth credentials to connect for real (no mock connections)."
+                  onClick={() => openSetup(cfg, p.name)}
+                  title="Set up this platform's OAuth app credentials to connect for real."
                 >
-                  Needs setup
+                  Set up
                 </button>
               )}
             </div>
@@ -557,6 +601,47 @@ export default function AccountsPage() {
                 {redirecting ? "Redirecting…" : `Authorize ${oauthTarget.name}`}
               </button>
               <button className="btn btn-secondary" onClick={() => setOauthTarget(null)} disabled={redirecting}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── OAuth app setup (enter Client ID/Secret, no .env editing) ── */}
+      {setup && (
+        <div className="dialog-backdrop" onClick={() => !setupBusy && setSetup(null)}>
+          <div className="dialog" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" style={{ maxWidth: 560 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "16px 20px", borderBottom: "2px solid var(--color-text)" }}>
+              <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 16 }}>Set up {setup.name}</div>
+            </div>
+            <div style={{ padding: 20, maxHeight: "60vh", overflowY: "auto" }}>
+              <ol style={{ margin: "0 0 12px", paddingLeft: 18, fontSize: 12.5, color: "var(--color-neutral-700)", lineHeight: 1.5 }}>
+                {setup.steps.map((s, i) => (
+                  <li key={i} style={{ marginBottom: 4 }}>{s}</li>
+                ))}
+              </ol>
+              <a href={setup.console} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, color: "var(--color-accent-700)" }}>
+                Open the developer console →
+              </a>
+              <div style={{ margin: "12px 0", padding: "8px 10px", borderRadius: 8, background: "var(--color-neutral-100)", fontSize: 11.5 }}>
+                <div style={{ fontWeight: 600, marginBottom: 2 }}>Register this exact redirect URI:</div>
+                <code style={{ wordBreak: "break-all" }}>{setup.redirectUri}</code>
+              </div>
+              {setup.note && (
+                <p style={{ fontSize: 11.5, color: "var(--color-accent-2-700)", margin: "0 0 12px" }}>⚠ {setup.note}</p>
+              )}
+              <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Client ID</label>
+              <input className="input" value={setupId} onChange={(e) => setSetupId(e.target.value)} spellCheck={false} style={{ width: "100%", marginBottom: 12 }} />
+              <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Client Secret</label>
+              <input className="input" type="password" value={setupSecret} onChange={(e) => setSetupSecret(e.target.value)} autoComplete="off" spellCheck={false} style={{ width: "100%" }} />
+              {setupErr && <p style={{ color: "var(--color-accent-2-700)", fontSize: 13, fontWeight: 600, margin: "12px 0 0" }}>{setupErr}</p>}
+            </div>
+            <div style={{ display: "flex", gap: 10, padding: "16px 20px", borderTop: "2px solid var(--color-divider)" }}>
+              <button className="btn btn-primary" onClick={saveSetup} disabled={setupBusy}>
+                {setupBusy ? "Saving…" : "Save & enable"}
+              </button>
+              <button className="btn btn-secondary" onClick={() => setSetup(null)} disabled={setupBusy}>
                 Cancel
               </button>
             </div>
