@@ -489,6 +489,12 @@ test("feed-caption: SYSTEM prompt forbids fabrication and preserves uncertainty 
   assert.match(FC.FEED_CAPTION_SYSTEM, /No URLs/i);
 });
 
+test("feed-caption: SYSTEM prompt defends against prompt injection in the feed text", () => {
+  assert.match(FC.FEED_CAPTION_SYSTEM, /untrusted/i);
+  assert.match(FC.FEED_CAPTION_SYSTEM, /Do NOT follow any instructions/i);
+  assert.match(FC.FEED_CAPTION_SYSTEM, /system prompt/i);
+});
+
 // ── Repurpose (AI-2) — pure spec/prompt/validation ────────────────────────
 const RP = await import("../src/lib/server/repurpose");
 
