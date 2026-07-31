@@ -11,6 +11,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { parseISO, toISO, daysInMonth } from "@/lib/date-util";
 
 const WD = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 const MONTHS = [
@@ -18,14 +19,6 @@ const MONTHS = [
   "July", "August", "September", "October", "November", "December",
 ];
 
-function parseISO(v: string | undefined): { y: number; m: number; d: number } | null {
-  if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
-  const [y, m, d] = v.split("-").map(Number);
-  return { y, m: m - 1, d };
-}
-function toISO(y: number, m: number, d: number): string {
-  return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-}
 function label(v: string | undefined): string {
   const p = parseISO(v);
   if (!p) return "Select date";
@@ -89,11 +82,11 @@ export function DatePicker({
     };
   }, [open]);
 
-  const daysInMonth = new Date(view.y, view.m + 1, 0).getDate();
+  const nDays = daysInMonth(view.y, view.m);
   const firstWd = new Date(view.y, view.m, 1).getDay();
   const cells: (number | null)[] = [];
   for (let i = 0; i < firstWd; i++) cells.push(null);
-  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  for (let d = 1; d <= nDays; d++) cells.push(d);
 
   const isToday = (d: number) =>
     view.y === today.getFullYear() && view.m === today.getMonth() && d === today.getDate();

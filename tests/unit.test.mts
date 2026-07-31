@@ -299,6 +299,32 @@ test("brand voice: fingerprint prompt embeds the guide + numbered corpus; provis
   assert.ok(BV.MIN_CORPUS >= 1);
 });
 
+// ── DatePicker date math (src/lib/date-util) ──────────────────────────────
+const DU = await import("../src/lib/date-util");
+
+test("date-util: parseISO reads a local calendar date (0-indexed month) and rejects junk", () => {
+  assert.deepEqual(DU.parseISO("2026-08-03"), { y: 2026, m: 7, d: 3 });
+  assert.equal(DU.parseISO(""), null);
+  assert.equal(DU.parseISO(undefined), null);
+  assert.equal(DU.parseISO("2026-8-3"), null, "requires zero-padding");
+  assert.equal(DU.parseISO("2026-13-01"), null, "rejects bad month");
+  assert.equal(DU.parseISO("2026-00-10"), null, "rejects month 0");
+});
+
+test("date-util: toISO 1-indexes + zero-pads the month, and round-trips with parseISO (no off-by-one)", () => {
+  assert.equal(DU.toISO(2026, 7, 3), "2026-08-03");
+  assert.equal(DU.toISO(2026, 11, 25), "2026-12-25");
+  const p = DU.parseISO("2026-02-09")!;
+  assert.equal(DU.toISO(p.y, p.m, p.d), "2026-02-09");
+});
+
+test("date-util: daysInMonth is leap-year aware", () => {
+  assert.equal(DU.daysInMonth(2026, 1), 28, "Feb 2026");
+  assert.equal(DU.daysInMonth(2028, 1), 29, "Feb 2028 is a leap year");
+  assert.equal(DU.daysInMonth(2026, 0), 31, "Jan");
+  assert.equal(DU.daysInMonth(2026, 3), 30, "Apr");
+});
+
 // ── Repurpose (AI-2) — pure spec/prompt/validation ────────────────────────
 const RP = await import("../src/lib/server/repurpose");
 

@@ -264,6 +264,47 @@ test("schedule validation: past time, empty caption, over-limit caption", async 
   assert.equal(overX.status, 422, "over-280 caption to X must be rejected server-side");
 });
 
+test("publishNow schedules for now, ignoring the sent date/time, and is not a draft", async () => {
+  const ig = await db.socialAccount.findFirst({ where: { platform: "instagram", status: "connected" } });
+  assert.ok(ig, "need a connected account");
+  const before = Date.now();
+  const res = await api("/api/posts", {
+    method: "POST",
+    body: JSON.stringify({
+      baseCaption: "publishNow-" + before,
+      category: "Promo",
+      accountIds: [ig!.id],
+      // Deliberately a PAST date/time — must be IGNORED when publishNow is set
+      // (a plain schedule with this date returns 400, tested above).
+      date: "2020-01-01",
+      time: "00:00",
+      tz: "UTC",
+      publishNow: true,
+    }),
+  });
+  assert.equal(res.status, 201, "publishNow with a past date must NOT be rejected");
+  const { postId } = await res.json();
+  assert.ok(postId, "post created");
+  try {
+    const post = await db.post.findUnique({ where: { id: postId }, include: { targets: true } });
+    assert.ok(post);
+    assert.notEqual(post!.status, "draft", "publishNow is not a draft");
+    const t = post!.targets[0];
+    assert.notEqual(t.state, "draft");
+    assert.ok(t.scheduledAt, "target has a scheduled time");
+    const sched = t.scheduledAt!.getTime();
+    assert.ok(
+      sched >= before - 5_000 && sched <= before + 60_000,
+      `scheduledAt should be ~now, not the 2020 date we sent (got ${t.scheduledAt!.toISOString()})`,
+    );
+    const job = await db.publishJob.findFirst({ where: { postTargetId: t.id } });
+    assert.ok(job, "a publish job was queued");
+    assert.ok(job!.runAt.getTime() <= before + 60_000, "job runs ~now");
+  } finally {
+    await db.post.delete({ where: { id: postId } }).catch(() => {});
+  }
+});
+
 test("Save draft creates draft targets with NO publish job (handoff #2)", async () => {
   const ig = await db.socialAccount.findFirst({ where: { platform: "instagram", status: "connected" } });
   // Drafts accept a past time and never queue.
