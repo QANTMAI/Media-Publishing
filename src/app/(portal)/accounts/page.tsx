@@ -103,6 +103,7 @@ export default function AccountsPage() {
   const [bsHandle, setBsHandle] = useState("");
   const [bsPassword, setBsPassword] = useState("");
   const [bsBusy, setBsBusy] = useState(false);
+  const [bsError, setBsError] = useState("");
 
   const refresh = async () => {
     const res = await fetch("/api/accounts");
@@ -189,11 +190,19 @@ export default function AccountsPage() {
 
   const connectBluesky = async () => {
     setBsBusy(true);
-    const res = await fetch("/api/accounts/connect/bluesky", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ identifier: bsHandle, appPassword: bsPassword }),
-    });
+    setBsError("");
+    let res: Response;
+    try {
+      res = await fetch("/api/accounts/connect/bluesky", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier: bsHandle, appPassword: bsPassword }),
+      });
+    } catch {
+      setBsBusy(false);
+      setBsError("Couldn't reach the server. Is the app still running?");
+      return;
+    }
     setBsBusy(false);
     const d = await res.json().catch(() => ({}));
     if (res.ok) {
@@ -201,9 +210,12 @@ export default function AccountsPage() {
       setBlueskyOpen(false);
       setBsHandle("");
       setBsPassword("");
+      setBsError("");
       refresh();
     } else {
-      notify(d.error ?? "Could not connect Bluesky");
+      // Keep the reason visible in the dialog — a toast alone reads as
+      // "nothing happened" when a submit is rejected.
+      setBsError(d.error ?? "Could not connect Bluesky");
     }
   };
 
@@ -383,7 +395,10 @@ export default function AccountsPage() {
         <div
           className="dialog-backdrop"
           onClick={() => {
-            if (!bsBusy) setBlueskyOpen(false);
+            if (!bsBusy) {
+              setBlueskyOpen(false);
+              setBsError("");
+            }
           }}
         >
           <div className="dialog" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
@@ -421,6 +436,23 @@ export default function AccountsPage() {
                 onKeyDown={(e) => e.key === "Enter" && bsHandle.trim() && bsPassword.trim() && !bsBusy && connectBluesky()}
                 style={{ width: "100%" }}
               />
+              {bsError && (
+                <p
+                  role="alert"
+                  style={{
+                    margin: "12px 0 0",
+                    padding: "10px 12px",
+                    borderRadius: 8,
+                    background: "var(--color-accent-2-100, #fde8e8)",
+                    color: "var(--color-accent-2-700, #a12525)",
+                    fontSize: 12.5,
+                    fontWeight: 600,
+                    lineHeight: 1.4,
+                  }}
+                >
+                  {bsError}
+                </p>
+              )}
             </div>
             <div style={{ display: "flex", gap: 10, padding: "16px 20px", borderTop: "2px solid var(--color-divider)" }}>
               <button
@@ -430,7 +462,14 @@ export default function AccountsPage() {
               >
                 {bsBusy ? "Connecting…" : "Connect"}
               </button>
-              <button className="btn btn-secondary" onClick={() => setBlueskyOpen(false)} disabled={bsBusy}>
+              <button
+                className="btn btn-secondary"
+                onClick={() => {
+                  setBlueskyOpen(false);
+                  setBsError("");
+                }}
+                disabled={bsBusy}
+              >
                 Cancel
               </button>
             </div>
