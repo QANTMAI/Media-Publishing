@@ -131,7 +131,7 @@ export default function LibraryPage() {
       )}
 
       {shown.length > 0 && (
-        <div className="stack stack-strong" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)" }}>
+        <div className="stack stack-strong autoCards">
           {shown.map((a) => (
             <div key={a.id}>
               <div

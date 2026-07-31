@@ -71,8 +71,8 @@ export function AnalyticsSection() {
   return (
     <div>
       <div
-        className="stack stack-strong"
-        style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", marginBottom: 20 }}
+        className="stack stack-strong autoCards"
+        style={{ marginBottom: 20 }}
       >
         {metrics.map((m) => (
           <div key={m.label} style={{ padding: "18px 20px" }}>

@@ -729,7 +729,7 @@ export default function ComposePage() {
                 {rules.name} rules · {rules.limit.toLocaleString()} chars · {rules.img.split("·")[0].trim()}
                 {rules.vid.toLowerCase().includes("not") ? " · no video" : " · video ok"}
               </summary>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 18px", margin: "10px 0 2px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: "6px 18px", margin: "10px 0 2px" }}>
                 {[
                   ["Caption limit", `${rules.limit.toLocaleString()} chars`],
                   ["Hashtags", rules.tags],

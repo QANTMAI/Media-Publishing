@@ -323,6 +323,26 @@ select.input { appearance: none; cursor: pointer; }
   .composeGrid { grid-template-columns: 1fr; }
 }
 
+/* Dashboard review-inbox + upcoming split. minmax(0,…) lets columns shrink so
+ * long captions ellipsis-truncate instead of overflowing the viewport; stacks
+ * to one column on narrow screens. */
+.dashSplit {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+@media (max-width: 860px) {
+  .dashSplit { grid-template-columns: 1fr; }
+}
+
+/* Auto-wrapping card row (KPIs, analytics): shrink-safe and re-flows to fewer
+ * columns as the screen narrows. */
+.autoCards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
 /* ════════════════════════════════════════════════════════════════════
    "Liquid Glass" skin
    Built to the four-layer model (rogerwong.me/2025/06/breaking-down-apples-

@@ -77,8 +77,8 @@ export default function DashboardPage() {
     <div>
       {/* ── KPI row ── */}
       <div
-        className="stack stack-strong"
-        style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", marginBottom: 20 }}
+        className="stack stack-strong autoCards"
+        style={{ marginBottom: 20 }}
       >
         <div style={{ padding: "18px 20px" }}>
           <p className="kick" style={{ margin: "0 0 6px" }}>
@@ -166,7 +166,7 @@ export default function DashboardPage() {
       )}
 
       {/* ── Review inbox + Upcoming ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 24, marginBottom: 24 }}>
+      <div className="dashSplit" style={{ marginBottom: 24 }}>
         <div>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
             <p className="kick" style={{ color: "var(--color-accent)" }}>
