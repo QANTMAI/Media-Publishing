@@ -45,11 +45,13 @@ export function DatePicker({
     selected ? { y: selected.y, m: selected.m } : { y: today.getFullYear(), m: today.getMonth() },
   );
 
-  // Re-center on the selected month each time the popover opens.
-  useEffect(() => {
-    if (open && selected) setView({ y: selected.y, m: selected.m });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  // Open the popover, re-centering the calendar on the selected month. Done in
+  // the handler (not an effect) so we never setState synchronously in an effect.
+  const toggle = () => {
+    const next = !open;
+    if (next && selected) setView({ y: selected.y, m: selected.m });
+    setOpen(next);
+  };
 
   // Position after render: prefer below, flip above if it would overflow, then
   // clamp into the viewport. Measured, so it adapts to the real popover size.
@@ -106,7 +108,7 @@ export function DatePicker({
         id={id}
         ref={btnRef}
         className="input"
-        onClick={() => setOpen((o) => !o)}
+        onClick={toggle}
         aria-haspopup="dialog"
         aria-expanded={open}
         style={{ textAlign: "left", cursor: "pointer", width: "100%" }}
