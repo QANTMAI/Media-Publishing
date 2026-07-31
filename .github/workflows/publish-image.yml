@@ -6,13 +6,11 @@ name: Publish container image
 # you like (see docs/DEPLOYMENT.md § Container image).
 
 on:
+  # Build the image on RELEASES (version tags) or on demand — not on every
+  # commit to main (that rebuilt/pushed an image ~per push, pure churn). Cut a
+  # `v*` tag or run this workflow manually when you want a fresh image.
   push:
-    branches: [main]
     tags: ["v*"]
-    # Skip doc-only / CI-only churn.
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
   workflow_dispatch:
 
 concurrency:
