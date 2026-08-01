@@ -643,6 +643,11 @@ export default function AccountsPage() {
                 </div>
                 <code style={{ wordBreak: "break-all" }}>{setup.redirectUri}</code>
               </div>
+              {(setup.platform === "linkedin" || setup.platform === "meta") && setup.redirectUri.startsWith("http://") && (
+                <p style={{ fontSize: 11.5, color: "var(--color-accent-2-700)", fontWeight: 600, margin: "0 0 12px", padding: "8px 10px", borderRadius: 8, background: "var(--color-accent-2-50, #fdeaea)" }}>
+                  ⚠ {setup.name} requires an <b>https</b> address — it rejects <code>http://localhost</code> and the sign-in will never redirect back here. Connect {setup.name} after deploying (register the <code>https://…</code> callback there instead). Bluesky and YouTube work locally.
+                </p>
+              )}
               {setup.note && (
                 <p style={{ fontSize: 11.5, color: "var(--color-accent-2-700)", margin: "0 0 12px" }}>⚠ {setup.note}</p>
               )}
