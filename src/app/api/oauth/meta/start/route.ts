@@ -20,16 +20,12 @@ export async function GET(req: Request) {
     maxAge: 600,
   });
 
-  // Real OAuth when the app is configured (env or the in-app vault). The mock
-  // path is ONLY for the explicit OAUTH_MOCK=1 dev flag; otherwise an
-  // unconfigured platform refuses honestly instead of creating a fake account.
+  // Real OAuth only — configured via env or the in-app vault. An unconfigured
+  // platform refuses honestly; there is no mock/simulated connect path.
   const creds = await resolveOAuth(userId, "meta");
   if (creds) {
     const redirectUri = oauthRedirectUri(new URL(req.url).origin, "meta");
     return NextResponse.redirect(metaAuthUrl(state, { clientId: creds.clientId, redirectUri }));
-  }
-  if (process.env.OAUTH_MOCK === "1") {
-    return NextResponse.redirect(new URL(`/api/oauth/meta/callback?mock=1&state=${state}`, req.url));
   }
   return NextResponse.redirect(new URL("/accounts?connect_error=not_configured", req.url));
 }

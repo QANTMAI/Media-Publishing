@@ -17,7 +17,7 @@ export async function GET() {
   const body = {
     status: dbOk ? "ok" : "degraded",
     db: dbOk,
-    publishing: process.env.OAUTH_MOCK === "1" ? "mock" : "live",
+    publishing: "live", // real-only; there is no mock/simulated publishing path
     email: !!(process.env.SMTP_URL && process.env.SMTP_FROM),
   };
   return NextResponse.json(body, {

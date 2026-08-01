@@ -28,8 +28,5 @@ export async function GET(req: Request) {
     const redirectUri = oauthRedirectUri(new URL(req.url).origin, "youtube");
     return NextResponse.redirect(youtubeAuthUrl(state, { clientId: creds.clientId, redirectUri }));
   }
-  if (process.env.OAUTH_MOCK === "1") {
-    return NextResponse.redirect(new URL(`/api/oauth/youtube/callback?mock=1&state=${state}`, req.url));
-  }
   return NextResponse.redirect(new URL("/accounts?connect_error=not_configured", req.url));
 }

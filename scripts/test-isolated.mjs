@@ -23,11 +23,12 @@ const env = {
   DATABASE_URL: "file:./test.db",
   NEXT_DIST_DIR: ".next-test",
   PORT,
-  // A dedicated test server must never run the dev 2FA bypass or mock-nothing.
+  // A dedicated test server must never run the dev 2FA bypass.
   NODE_ENV: "development",
-  // Deterministic mock mode for the suite (matches CI) — otherwise the local
-  // .env's OAUTH_MOCK leaks in and OAuth-mock tests diverge local vs CI.
-  OAUTH_MOCK: "1",
+  // No OAuth mock — the product has no simulated connect path. Publish-pipeline
+  // tests seed `mock-token-` fixture accounts directly; the publisher recognizes
+  // that token prefix as a TEST double (never producible in the product).
+  OAUTH_MOCK: "0",
 };
 
 let server = null;

@@ -1251,54 +1251,25 @@ test("linkedin: little-text escaping, documented post body, error classification
   assert.ok(partial.errors.some((e: string) => /LinkedIn OAuth is partially configured/.test(e)));
 });
 
-test("linkedin: mock OAuth connect creates labeled account; queue publishes to labeled mock permalink", async () => {
-  const { runQueueCycle } = await import("../src/lib/server/worker");
+test("linkedin connect is real-only: refuses unconfigured, then redirects to real OAuth", async () => {
+  await api("/api/oauth/config?platform=linkedin", { method: "DELETE" }); // ensure unconfigured
+  const before = await db.socialAccount.count({ where: { platform: "linkedin" } });
+  const refused = await api("/api/oauth/linkedin/start");
+  assert.ok([302, 307].includes(refused.status));
+  assert.match(refused.headers.get("location") ?? "", /accounts\?connect_error=not_configured/, "unconfigured refuses honestly");
+  assert.equal(await db.socialAccount.count({ where: { platform: "linkedin" } }), before, "no mock account created");
 
-  // Start: requires auth, sets the state cookie, and (mock mode) redirects to
-  // the callback carrying the same state.
-  const start = await api("/api/oauth/linkedin/start");
-  assert.ok([302, 307].includes(start.status), `start should redirect, got ${start.status}`);
-  const loc = start.headers.get("location")!;
-  assert.match(loc, /\/api\/oauth\/linkedin\/callback\?mock=1&state=/);
-  const state = new URL(loc, BASE).searchParams.get("state")!;
-
-  // Wrong state must be rejected (CSRF guard) BEFORE consuming the cookie…
-  // (cookie is single-use, so run the real callback first, then test mismatch)
-  const cb = await api(`/api/oauth/linkedin/callback?mock=1&state=${state}`);
-  assert.ok([302, 307].includes(cb.status));
-  assert.match(cb.headers.get("location") ?? "", /accounts\?connected=1/);
-
-  const acct = await db.socialAccount.findUnique({
-    where: { platform_externalId: { platform: "linkedin", externalId: "mock_li_1" } },
-  });
-  assert.ok(acct, "linkedin account row created");
-  assert.equal(acct!.status, "connected");
-  assert.equal(acct!.label, "mock connection", "honestly labeled as mock");
-  assert.equal(acct!.scopes, "openid profile w_member_social", "real scopes recorded");
-  assert.ok(acct!.tokenRef, "token stored in vault");
-
-  // A stale/forged state now fails (no cookie present).
-  const forged = await api(`/api/oauth/linkedin/callback?mock=1&state=deadbeef`);
-  assert.match(forged.headers.get("location") ?? "", /connect_error=State\+mismatch|connect_error=State%20mismatch/);
-
-  // Publish through the REAL queue: mock token → labeled mock permalink.
-  const created = await api("/api/posts", {
-    method: "POST",
-    body: JSON.stringify({ baseCaption: "linkedin mock publish test", accountIds: [acct!.id], date: "2030-01-01", time: "10:00", tz: "UTC" }),
-  });
-  assert.equal(created.status, 201);
-  const { postId } = await created.json();
-  const t = await db.postTarget.findFirst({ where: { postId } });
-  await db.publishJob.updateMany({ where: { postTargetId: t!.id }, data: { runAt: new Date(Date.now() - 1000) } });
-  await runQueueCycle();
-  const after = await db.postTarget.findUnique({ where: { id: t!.id } });
-  assert.equal(after!.state, "published", after!.error ?? "");
-  assert.match(after!.permalink ?? "", /mock\.qantm\.local\/linkedin\//, "labeled mock permalink, never a fake real link");
-
-  // Cleanup: purge via the real endpoint (also wipes the vault token).
-  await db.post.delete({ where: { id: postId } });
-  const purge = await api(`/api/accounts/${acct!.id}?purge=1`, { method: "DELETE" });
-  assert.equal(purge.status, 200);
+  await api("/api/oauth/config", { method: "POST", body: JSON.stringify({ platform: "linkedin", clientId: "test-client", clientSecret: "test-secret" }) });
+  try {
+    const start = await api("/api/oauth/linkedin/start");
+    assert.ok([302, 307].includes(start.status));
+    const loc = start.headers.get("location") ?? "";
+    assert.match(loc, /linkedin\.com/, "redirects to the REAL LinkedIn OAuth, not a mock");
+    assert.match(loc, /client_id=test-client/, "uses the stored client id");
+    assert.match(loc, /redirect_uri=[^&]*api%2Foauth%2Flinkedin%2Fcallback/, "registers our callback URI");
+  } finally {
+    await api("/api/oauth/config?platform=linkedin", { method: "DELETE" });
+  }
 });
 
 test("provenance: a post to a mock account is flagged mock (not silently 'real')", async () => {
@@ -1654,29 +1625,22 @@ test("Bluesky connect: auth-gated and rejects a non-app-password (pre-network)",
   assert.match((await badPw.json()).error, /app password/i);
 });
 
-test("YouTube connect (OAuth): start redirects, mock callback creates a labeled channel", async () => {
-  const start = await api("/api/oauth/youtube/start");
-  assert.ok(start.status >= 300 && start.status < 400, "start issues a redirect");
-  const loc = start.headers.get("location") ?? "";
+test("YouTube connect is real-only: refuses unconfigured, then redirects to real Google OAuth", async () => {
+  await api("/api/oauth/config?platform=youtube", { method: "DELETE" });
+  const refused = await api("/api/oauth/youtube/start");
+  assert.ok(refused.status >= 300 && refused.status < 400);
+  assert.match(refused.headers.get("location") ?? "", /accounts\?connect_error=not_configured/, "unconfigured refuses (no mock)");
 
-  if (!/mock=1/.test(loc)) {
-    // Real YOUTUBE_* is configured in this env — the mock path isn't exercised;
-    // just assert we're heading to Google's real consent screen.
-    assert.match(loc, /accounts\.google\.com/, "real OAuth redirects to Google");
-    return;
+  await api("/api/oauth/config", { method: "POST", body: JSON.stringify({ platform: "youtube", clientId: "test-yt", clientSecret: "test-secret" }) });
+  try {
+    const start = await api("/api/oauth/youtube/start");
+    assert.ok(start.status >= 300 && start.status < 400);
+    const loc = start.headers.get("location") ?? "";
+    assert.match(loc, /accounts\.google\.com/, "redirects to REAL Google OAuth, not a mock");
+    assert.match(loc, /client_id=test-yt/, "uses the stored client id");
+  } finally {
+    await api("/api/oauth/config?platform=youtube", { method: "DELETE" });
   }
-
-  // Mock fallback (no YOUTUBE_* creds): follow the callback with the issued state.
-  assert.match(loc, /\/api\/oauth\/youtube\/callback\?mock=1/);
-  const state = new URL(loc, BASE).searchParams.get("state");
-  const cb = await api(`/api/oauth/youtube/callback?mock=1&state=${state}`);
-  assert.ok(cb.status >= 300 && cb.status < 400 && /connected=1/.test(cb.headers.get("location") ?? ""), "callback lands on /accounts?connected=1");
-
-  const acct = await db.socialAccount.findUnique({
-    where: { platform_externalId: { platform: "youtube", externalId: "mock_yt_1" } },
-  });
-  assert.ok(acct && acct.provenance === "mock" && acct.mark === "YT", "mock YouTube channel created + honestly labeled");
-  await db.socialAccount.deleteMany({ where: { platform: "youtube", externalId: "mock_yt_1" } });
 });
 
 // ── Worker idempotency + stale-claim reclaim (audit gap T2) ─────────────────

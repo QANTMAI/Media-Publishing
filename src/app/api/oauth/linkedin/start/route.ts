@@ -28,8 +28,5 @@ export async function GET(req: Request) {
     const redirectUri = oauthRedirectUri(new URL(req.url).origin, "linkedin");
     return NextResponse.redirect(linkedinAuthUrl(state, { clientId: creds.clientId, redirectUri }));
   }
-  if (process.env.OAUTH_MOCK === "1") {
-    return NextResponse.redirect(new URL(`/api/oauth/linkedin/callback?mock=1&state=${state}`, req.url));
-  }
   return NextResponse.redirect(new URL("/accounts?connect_error=not_configured", req.url));
 }

@@ -625,7 +625,22 @@ export default function AccountsPage() {
                 Open the developer console →
               </a>
               <div style={{ margin: "12px 0", padding: "8px 10px", borderRadius: 8, background: "var(--color-neutral-100)", fontSize: 11.5 }}>
-                <div style={{ fontWeight: 600, marginBottom: 2 }}>Register this exact redirect URI:</div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 2 }}>
+                  <span style={{ fontWeight: 600 }}>Register this redirect URI — it must match EXACTLY:</span>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ fontSize: 11, padding: "2px 8px", flex: "none" }}
+                    onClick={() => {
+                      navigator.clipboard?.writeText(setup.redirectUri).then(
+                        () => notify("Redirect URI copied"),
+                        () => notify("Copy failed — select it manually"),
+                      );
+                    }}
+                  >
+                    Copy
+                  </button>
+                </div>
                 <code style={{ wordBreak: "break-all" }}>{setup.redirectUri}</code>
               </div>
               {setup.note && (

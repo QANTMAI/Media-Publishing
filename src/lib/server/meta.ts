@@ -1,10 +1,7 @@
 /* Meta Graph API integration (Build Plan §05): Instagram + Facebook (+ Threads)
  * share one Meta developer app. OAuth code flow → long-lived user token →
  * page tokens + linked IG business accounts. All tokens go to the vault.
- *
- * Mock mode: with no META_APP_ID (or OAUTH_MOCK=1) the connect flow simulates
- * a successful grant so the whole pipeline is exercisable before app review
- * completes. Mock accounts are clearly labeled. */
+ * Real OAuth only — there is no mock/simulated connect path. */
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 
@@ -24,9 +21,6 @@ export function metaConfigured(): boolean {
   return Boolean(process.env.META_APP_ID && process.env.META_APP_SECRET && process.env.META_REDIRECT_URI);
 }
 
-export function mockMode(): boolean {
-  return process.env.OAUTH_MOCK === "1" || !metaConfigured();
-}
 
 export function metaAuthUrl(state: string, cfg?: { clientId: string; redirectUri: string }): string {
   const p = new URLSearchParams({
