@@ -141,6 +141,11 @@ export default function LoginPage() {
                 Sign-in is email + password, with an optional authenticator code when 2FA is
                 enrolled. SSO and passkeys are on the roadmap, not available yet.
               </p>
+              <p style={{ fontSize: 12, color: "var(--color-neutral-600)", marginTop: 12 }}>
+                <a href="/privacy" style={{ color: "var(--color-accent-700)" }}>
+                  Privacy
+                </a>
+              </p>
             </form>
           ) : (
             <form
